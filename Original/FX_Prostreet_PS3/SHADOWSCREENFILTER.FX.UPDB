@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shader-pdb pdbHint="4e4a0001-05c41398-52082d04" version="6132">
+ <files>
+  <file id="0" path="D:\eax-build1-s09-xenon\Oban\Speed\Xenon\Src\Render\Shaders\shadowscreenfilter.fx" time="01c7f8c7-b1021fc6">//
+// Shadow screen filter
+//
+
+// Used to render a full screen quad over the stencil buffer
+//
+float4		ShadowColour		: SHADOWVOLUME_COLOUR;
+
+struct VS_INPUT
+{
+	float4 position : POSITION;
+	float4 texcoord : TEXCOORD;
+};
+
+struct VtoP 
+{
+	float4 position : POSITION;
+};
+
+struct PS_OUTPUT
+{
+	float4 color : COLOR0;
+};
+
+VtoP vertexShader(const VS_INPUT IN)
+{
+	VtoP OUT;
+	OUT.position = IN.position;
+	return OUT;
+}
+
+PS_OUTPUT pixelShader(VtoP IN)
+{
+	PS_OUTPUT OUT;
+	OUT.color = float4(ShadowColour.rgb, ShadowColour.a);
+	return OUT;
+}
+
+technique debugRenderStencilBuffer &lt;int shader = 1;&gt;
+{
+    pass p0
+    {
+        VertexShader = compile vs_1_1 vertexShader();
+        PixelShader  = compile ps_1_1 pixelShader();
+    }
+}
+
+</file>
+ </files>
+ <tool name="FXLite">
+  <defines>
+   <define name="PLAT_XENON" value="" />
+  </defines>
+  <arguments>
+   <argument name="/Zi" value="false" />
+   <argument name="/Vd" value="false" />
+   <argument name="/Xu0_deprecated" value="false" />
+   <argument name="/Odu_deprecated" value="false" />
+   <argument name="/XOd_" value="false" />
+   <argument name="/XOu" value="false" />
+   <argument name="/Xmaxtempreg" value="0" />
+   <argument name="PsSampBase" value="0" />
+   <argument name="PsSampCount" value="0" />
+   <argument name="VsSampBase" value="0" />
+   <argument name="VsSampCount" value="0" />
+   <argument name="VsInstCount" value="0" />
+   <argument name="PsInstCount" value="0" />
+   <argument name="/Od" value="false" />
+   <argument name="/Zpr" value="false" />
+   <argument name="/Zpc" value="false" />
+   <argument name="/Gpp" value="false" />
+   <argument name="/Op" value="false" />
+   <argument name="/Gfa" value="false" />
+   <argument name="/Gfp" value="false" />
+   <argument name="/XZc:zeroInit" value="false" />
+   <argument name="/XVe" value="false" />
+   <argument name="/Xbe:3-" value="false" />
+   <argument name="/Xbe:1-" value="false" />
+   <argument name="/XQInomaskedexports" value="false" />
+   <argument name="/XOautoz" value="false" />
+   <argument name="/XfxAv" value="false" />
+   <argument name="/XfxAs" value="false" />
+   <argument name="/XfxPv" value="false" />
+  </arguments>
+ </tool>
+ <shaders>
+  <shader entrypoint="pixelShader" target="ps_3_0" FxlTechniqueName="debugRenderStencilBuffer" FxlTechnique="0" FxlPassName="p0" FxlPass="0" ZPass="0" pdbHint="4e4a0000-05c41398-52082d04">
+   <constanttable>
+    <constant register="c0">
+     <type name="ShadowColour" class="vector" type="float" columns="4" />
+    </constant>
+   </constanttable>
+   <sourcemap>
+    <statement pc="1" file="0" line="36" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="pixelShader" retID="12">
+     <parameter id="11" />
+    </function>
+    <function id="1" name="vertexShader" retID="9">
+     <parameter id="8" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+   </VfetchInfo>
+   <InterpolatorInfo>
+   </InterpolatorInfo>
+   <LiteralFloats>
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+  <shader entrypoint="vertexShader" target="vs_3_0" FxlTechniqueName="debugRenderStencilBuffer" FxlTechnique="0" FxlPassName="p0" FxlPass="0" ZPass="0" pdbHint="4e4a0001-05c41398-52082d04">
+   <constanttable>
+   </constanttable>
+   <sourcemap>
+    <statement pc="3" file="0" line="25" scope="-1" lastinstruction="0" />
+    <statement pc="0.1" file="0" line="25" scope="-1" lastinstruction="0" />
+    <statement pc="4" file="0" line="29" scope="-1" lastinstruction="0" />
+    <statement pc="1.1" file="0" line="29" scope="-1" lastinstruction="0" />
+    <statement pc="2.0" file="0" line="29" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="pixelShader" retID="12">
+     <parameter id="11" />
+    </function>
+    <function id="1" name="vertexShader" retID="9">
+     <parameter id="8" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+    <vfetch Address="3" Register="0" DestSwizzle="xyzw" Semantic="0x00" End="false" />
+   </VfetchInfo>
+   <InterpolatorInfo>
+   </InterpolatorInfo>
+   <LiteralFloats>
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+ </shaders>
+</shader-pdb>

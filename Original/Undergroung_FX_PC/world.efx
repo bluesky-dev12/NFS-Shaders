@@ -1,0 +1,123 @@
+//
+// World Effects
+//
+
+float4x4 WorldViewProj : WORLDVIEWPROJECTION ;
+
+shared float4 TextureOffset   : TEXTUREOFFSET;
+shared float4x4 TextureOffsetMatrix : TEXTUREOFFSETMATRIX;
+
+shared texture diffusemap		: DiffuseMap;
+
+shared int BaseAlphaTestEnable	: BASEALPHATESTENABLE;
+shared int BaseAlphaRef			: BASEALPHAREF;
+shared int BaseAlphaBlendEnable	: BASEALPHABLENDENABLE;
+shared int BaseSrcBlend			: BASESRCBLEND;
+shared int BaseDestBlend		: BASEDESTBLEND;
+
+sampler samp = sampler_state
+{
+	texture = <diffusemap>;
+	AddressU = WRAP;
+	AddressV = WRAP;
+	MIPFILTER = LINEAR;
+	MINFILTER = LINEAR;
+	MAGFILTER = LINEAR;
+};
+
+struct VS_INPUT
+{
+	float4 position : POSITION;
+	float4 color    : COLOR;
+	float4 texcoord : TEXCOORD;
+};
+
+struct VtoP
+{
+	float4 position : POSITION;
+	float4 color    : COLOR;
+	float4 tex      : TEXCOORD0;
+};
+
+struct PS_OUTPUT
+{
+	float4 color : COLOR0;
+};
+
+VtoP vertex_shader(const VS_INPUT IN)
+{
+	VtoP OUT;
+	float4 p = mul(IN.position, WorldViewProj);
+	OUT.position = p;
+	OUT.tex = IN.texcoord + TextureOffset;
+	OUT.color = IN.color ;
+	
+	return OUT;
+}
+
+PS_OUTPUT pixel_shader(const VtoP IN)
+{
+	PS_OUTPUT OUT;
+	float4 diffuse = tex2D(samp, IN.tex) * IN.color * 2;
+	OUT.color.xyz = diffuse;
+	OUT.color.w = diffuse.w;
+	return OUT;
+}
+
+technique world
+{
+    pass p0
+    {
+		AlphaTestEnable = (BaseAlphaTestEnable);
+		AlphaRef = (BaseAlphaRef);
+		AlphaBlendEnable = (BaseAlphaBlendEnable);
+		SrcBlend = (BaseSrcBlend);
+		DestBlend = (BaseDestBlend);
+
+		AddressU[0]  = Wrap;
+		AddressV[0]  = Wrap;
+
+        CullMode = NONE;
+        VertexShader = compile vs_1_1 vertex_shader();
+        PixelShader  = compile ps_1_1 pixel_shader();
+    }
+}
+
+technique world_fixed
+{
+	pass p0
+	{
+		AlphaTestEnable = (BaseAlphaTestEnable);
+		AlphaRef = (BaseAlphaRef);
+		AlphaBlendEnable = (BaseAlphaBlendEnable);
+		SrcBlend = (BaseSrcBlend);
+		DestBlend = (BaseDestBlend);
+
+		TextureTransformFlags[0] = Count2 ;
+		TextureTransform[0] = (TextureOffsetMatrix);
+
+		AddressU[0]  = Wrap;
+		AddressV[0]  = Wrap;
+
+		CullMode = NONE;
+		Lighting=FALSE;
+	
+		MIPFILTER[0] = LINEAR;
+		MINFILTER[0] = LINEAR;
+		MAGFILTER[0] = LINEAR;
+
+		VertexShader = NULL; 
+		PixelShader  = NULL; 
+		FVF = XYZ | DIFFUSE | TEX1 ; 
+
+		Texture[0] = <diffusemap>;
+        ColorArg1[0] = Texture;
+        ColorArg2[0] = Diffuse; 
+		ColorOp[0] = Modulate2x;
+		
+		alphaarg1[0] = Texture;
+		alphaarg2[0] = Diffuse;
+		AlphaOp[0] = Modulate2x;
+	}
+}
+ÿ

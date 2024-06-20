@@ -1,0 +1,446 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shader-pdb pdbHint="4e4a0000-9d8f57ed-c96b6db8" version="6995">
+ <files>
+  <file id="0" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Indep\Src\Render\effects\shadowmesh.bbfx" time="01c8f9c0-c77698b6">
+#include "registermap.h"
+
+/*
+STARTUSAGE:
+isTranslucent: false
+PLATFORM: XENON
+stream0: POSITION0, float3
+PLATFORM: PS3
+stream0: POSITION0, float4
+PLATFORM: PC
+stream0: POSITION0, float3
+ENDUSAGE
+*/
+
+const string MaterialClass = "ShadowMesh";
+
+sampler2D SHADOWMESH_SAMPLER
+&lt;
+	string TextureSamplerState = "gTexture";
+&gt;;
+
+#define SHADOW_SAMPLER SHADOWMESH_SAMPLER
+
+float4x4	cmWorldMatTranspose		: REG_cmWorldMatTranspose;
+
+#include "mw2_shadow_csm.h"
+</file>
+  <file id="1" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Xenon\Src\Render\effects\registermap.h" time="01c8f9c5-4d521c5e">
+// ------------------------------------------------------------------------------------------------------------------------------------------
+
+#define CONSTANT_RESERVED_DO_NOT_USE			(0)		/* 4 vectors [c0,c3] */
+
+// ------------------------------------------------------------------------------------------------------------------------------------------
+
+#define REG_RESERVED_DO_NOT_USE				register(c0)	/* 4 vectors [c0,c3] */
+
+#define REG_cmWorldMat						register(c4)	/* 4 vectors [c0,c3] */
+#define REG_cmWorldMatTranspose				register(c8)	/* 4 vectors [c4,c7] */
+#define REG_cmWorldView						register(c12)	/* 4 vectors [c8,c11] */
+#define REG_cmShadowMapWVP					register(c16)	/* 4 vectors [c12,c15] */
+#define REG_cmLightWVP						register(c20)	/* 4 vectors [c16,c19] */
+#define REG_cmWorldViewProj					register(c24)	/* 4 vectors [c20,c23] */
+#define REG_cmPrevWorldViewProj				register(c28)	/* 4 vectors [c24,c27] */
+#define REG_cvLocalEyePos					register(c32)	/* 1 vecotr	 [c32] */
+#define REG_cvLocalLightVec					register(c33)	/* 1 vecotr	 [c33] */
+#define REG_cfSkyDomeRotation				register(c34)	/* 1 vecotr	 [c34] */
+
+#define REG_cmLocalColourMatrix				register(c36)	/* 4 vectors [c36,c39] */
+#define REG_cmLocalDirectionMatrix			register(c40)	/* 4 vectors [c40,c43] */
+#define REG_cmLocalPositionMatrix			register(c44)	/* 4 vectors [c44,c47] */
+#define REG_cavHarmonicCoeff				register(c48)	/* 10 floats, 3 vectors, 1 pad vector [48,51] */
+
+#define REG_cvWorldSpecularColour			register(c49)
+#define REG_cvWorldSunColour				register(c50)
+#define REG_cvWorldAmbientColour			register(c51)
+
+#define REG_camBlendMatrices				register(c52)	/* 64 vectors [c52,c115] */
+#define REG_cavWorldHeadlightDirection		register(c68)	/* 2 vectors [c68,c69] */
+#define REG_cavWorldHeadlightPosition		register(c70)	/* 2 vectors [c70,c71] */
+#define REG_cavWorldHeadlightUpDirection	register(c72)	/* 2 vectors [c72,c73] */
+
+#define REG_cvSHColour						register(c51)
+
+// available: [c82,c115] (but would alias cavPcaWeightsR and cavPcaWeightsG)
+// PCA/UCap parameters (ucap.fx, water.fx)
+#define REG_cafPcaMean					register(c81)	/* 1 vector */
+#define REG_cavPcaWeightsR				register(c82)	/* 22 vectors [c82,c103] */
+#define REG_cavPcaWeightsG				register(c104)	/* 22 vectors [c104,c125] */
+#define REG_cavPcaWeightsB				register(c126)	/* 22 vectors [c126,c147] */
+#define REG_cavPcaWeightsX				register(c148)	/* 8 vectors [c148,c155] */
+#define REG_cavPcaWeightsY				register(c156)	/* 8 vectors [c156,c163] */
+#define REG_cavPcaWeightsZ				register(c164)	/* 8 vectors [c164,c171] */
+#define REG_cavPcaWeightsNX				register(c172)	/* 8 vectors [c172,c179] */
+#define REG_cavPcaWeightsNY				register(c180)	/* 8 vectors [c180,c187] */
+#define REG_cavPcaWeightsNZ				register(c188)	/* 8 vectors [c188,c195] */
+#define REG_cavFeatureHeights			register(c196)	/* 1 vector */
+
+// The following parameters alias cavPcaWeightsG:
+#define REG_cfMipMapBias				register(c116)
+#define REG_cfBrightness				register(c117)
+#define REG_cfSurfaceReflection			register(c118)
+#define REG_cfRainIntensity				register(c119)
+#define REG_cfSpecularPower				register(c120)
+#define REG_cfMetallicScale				register(c121)
+#define REG_cfEnvmapPullAmount			register(c122)
+#define REG_cfEnvmapPower				register(c123)
+#define REG_PAD2						register(c125)
+
+// The following parameters alias cavPcaWeightsB:
+#define REG_cfCombinedBrightness		register(c126)
+#define REG_cvVisualEffectFadeColour	register(c127)	/* also aliases cfSkyAlphaTag */
+#define REG_cfSkyAlphaTag				register(c127)	/* also aliases cvVisualEffectFadeColour */
+#define REG_cfShadowVolumeOffset		register(c128)
+#define REG_cfRVMWorldBrightness		register(c129)
+#define REG_cfDesaturation				register(c130)
+#define REG_cfSplitScreenUVScale		register(c132)
+#define REG_cfColourCubeFilterBlend		register(c133)
+#define REG_cfTimeTicker				register(c134)
+#define REG_cfMiddleGray				register(c135)
+#define REG_cfBrightPassThreshold		register(c136)
+#ifndef SMOKE_XENON
+#define REG_cvScreenOffset				register(c137)
+#else
+#define REG_cvScreenOffset				register(c63)
+#endif
+#define REG_cvFog_Br_Plus_Bm			register(c138)
+#define REG_cvFog_One_Over_BrBm			register(c139)
+#define REG_cvFog_Const_1				register(c140)
+#define REG_cvFog_Const_2				register(c141)
+#define REG_cvFog_Const_3				register(c142)
+#define REG_cvAmbientColour				register(c143)
+#define REG_cvShadowParams0				register(c144)
+#define REG_cvShadowParams1				register(c145)
+
+// The following parameters alias cavPcaWeightsX:
+#define REG_cvDiffuseColour				register(c148)
+#define REG_cvSpecularColour			register(c149)
+// available: [c150,c155] (but would alias cavPcaWeightsX)
+
+// The following parameters alias cavPcaWeightsY:
+#define REG_cvShadowColour				register(c156)
+#define REG_cvTextureOffset				register(c161)
+#define REG_cvLocalCenter				register(c162)
+#define REG_cvTreeParams				register(c163)
+
+// The following parameters alias cavPcaWeightsZ:
+#define REG_cvBaseAlphaRef				register(c164)
+#define REG_cvCloudIntensity			register(c165)
+#define REG_cvLocalLightPos				register(c166)
+#define REG_cvPixelizationScale			register(c167)
+#define REG_cvGrassColour				register(c169)
+
+// The following parameters alias cavPcaWeightsNX:
+#define REG_cvDepthOfFieldParams		register(c172)	/* aliases cavFeatureHeights */
+#define REG_cvBlurParams				register(c173)
+
+// The following parameters alias cavPcaWeightsNX and cavPcaWeightsNY:
+#define REG_cavSampleOffsetWeights		register(c174)	// 16 vectors
+#define REG_cvSmokeParams				register(c175)
+#define REG_cmShadowMapVP				register(c180)	// 4 vectors
+#define REG_cmShadowMapBiasMatrix		register(c184)	// 4 vectors
+#ifndef SMOKE_XENON
+#define REG_cmCSMTransform				register(c188)	// 4 vectors
+#else
+#define REG_cmCSMTransform				register(c50)	// 4 vectors
+#endif
+#define REG_cvTint						register(c190)
+#define REG_PAD0						register(c191)	/* free space!! */
+
+
+// bbfx material paramters for world
+
+#define	REG_cfAmbientIntensityW			register(c191)  /* reuse these registers for shaders that need 2 */
+#define	REG_cfDiffuseIntensityW			register(c192)  /* reuse these registers for shaders that need 2 */
+#define	REG_cfSpecularIntensityW		register(c193)  /* reuse these registers for shaders that need 2 */
+#define	REG_cfSpecularPowerW			register(c194)  /* reuse these registers for shaders that need 2 */
+#define	REG_cfReflectionIntensityW		register(c195)
+#define	REG_cfSpecularBackscatterW		register(c196)  /* reuse these registers for shaders that need 2 */
+#define	REG_cfLod_blend_beginW			register(c197) 
+#define	REG_cfLod_blend_biasW			register(c198) 
+#define	REG_cfIlluminationIntensityW	register(c199) 
+#define	REG_cvSpecularColourW			register(c200)
+#define	REG_cfReflectionLightingW		register(c201)
+#define	REG_cfReflectionLtgPwrW			register(c202)
+#define	REG_cfDiffuseIntensity1W		register(c192)
+#define	REG_cfSpecularIntensity1W		register(c193)
+#define	REG_cfSpecularPower1W			register(c194)
+//#define	REG_cfReflectionIntensityW		register(c195)  /* note this is just here to let Andy know I need it in this group */
+#define	REG_cfDiffuseIntensity2W		register(c196)
+#define	REG_cfSpecularIntensity2W		register(c197)
+#define	REG_cfSpecularPower2W			register(c198)
+#define REG_cfDirtAmbientIntensityW		register(c191)
+#define REG_cfDirtBackscatterW			register(c192)
+#define REG_cfDirtSpecularIntensity		register(c193)
+#define REG_cfDirtSpecularPowerW		register(c194)
+#define REG_cfGrassAmbientIntensityW	register(c195)
+#define REG_cfGrassBackscatterW			register(c196)
+#define REG_cfGrassSpecularIntensityW	register(c197)
+#define REG_cfGrassSpecularPowerW		register(c198)
+#define REG_cfRockAmbientIntensityW		register(c199)
+#define REG_cfRockSpecularIntensityW	register(c200)
+#define REG_cfRockSpecularPowerW		register(c201)
+#define	REG_cvDirtSpecularColorW		register(c202)
+#define	REG_cvGrassSpecularColorW		register(c203)
+#define	REG_cvRockSpecularColorW		register(c204)
+#define	REG_cfDebugDiffuseTexW			register(c250)  
+#define	REG_cfDebugSpecularTexW			register(c251) 
+#define	REG_cfDebugNormalTexW			register(c252) 
+#define	REG_cfDebugNormalScaleW			register(c253)
+#define REG_cvFogValue					register(c206)
+#define REG_cvFogColour					register(c207)
+#define REG_cfSkyFogFalloff				register(c208)
+#define REG_cfLightMapVertColBlend		register(c209)
+#define REG_cvLightColour				register(c210)
+#define REG_cvLightPosition				register(c211)
+#define REG_cvFrustumVector				register(c212)
+#define REG_cvSunHazeColour				register(c213)
+#define REG_cfVSMEnabled				register(c214)
+#ifndef SMOKE_XENON
+#define REG_cvVertexPowerBrightness		register(c216)
+#else
+#define REG_cvVertexPowerBrightness		register(c62)
+#endif
+#define REG_cfDrawDepthOfField			register(c230)
+#define REG_cfFogEnable					register(c240)
+#define REG_CSMTransform				register(c249) /* 4 vectors [c249,c252] */
+
+// Light Material Registers - alias REG_cavLightDirections
+
+#define REG_cvDiffuseMin				register(c228)
+#define REG_cvDiffuseRange				register(c229)
+#define REG_cvEnvmapMin					register(c230)
+#define REG_cvEnvmapRange				register(c231)
+#define REG_cvSpecularMin				register(c232)
+#define REG_cvSpecularRange				register(c233)
+#define REG_cvSpecular1Min				register(c234)
+#define REG_cvSpecular1Range			register(c235)
+#define REG_cvPowers					register(c236)
+#define REG_cvClampAndScales			register(c237)
+#define REG_cvFlakes					register(c238)
+#define REG_cvVinylScales				register(c239)
+
+#define	REG_cvGradientParams            register(c240)
+#define	REG_cvGradientColour            register(c241)
+#define	REG_cvGradientColourE           register(c242)
+#define	REG_ScreenRez                  	register(c243)
+#define REG_cfScaleUVs					register(c244)
+#define REG_cvVisualTreatmentParams		register(c245)
+#define REG_cvVisualTreatmentParams2	register(c246)
+#define REG_cvVisualTreatmentParams3	register(c247)
+#define REG_cfCurrentTime				register(c248)
+
+
+// for the constants heavy shader instancing
+// 4 vectors, c4 to c7
+
+#define REG_cvInstanceWorldSunColour		register(c61)
+#define REG_cfSmokeLightInfluence			register(c60)
+#define REG_cvInstanceWorldSunPosition		register(c59)
+#define REG_cvInstanceData					register(c58)	// 4 Vectors
+#define REG_cmInstanceVP					register(c54)
+#define REG_cvInstanceWorldAmbientColour	register(c11)
+#define REG_cvInstancedFogColour			register(c12)
+#define REG_cvInstancedFogValue				register(c13)
+#define REG_cvInstanceArray					register(c64)
+
+
+// Aliased With Light Materials ...
+
+
+</file>
+  <file id="2" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Indep\Src\Render\effects\common\mw2_shadow_csm.h" time="01c8f9c0-c76d0f4e">
+#ifndef _MW2_SHADOW_CSM_H
+#define _MW2_SHADOW_CSM_H
+
+/********************************************************************
+	file:		mw2_shadow_csm.h
+	purpose:	techniques for CSM shadows
+*********************************************************************/
+
+#ifdef ALPHA
+#ifndef SHADOW_SAMPLER
+#define SHADOW_SAMPLER OPACITY_SAMPLER
+#endif
+#endif
+
+#ifndef SHADOW_SAMPLER_CHANNEL
+#define SHADOW_SAMPLER_CHANNEL b
+#endif
+
+float4x4 cmCSMTransform : REG_cmCSMTransform;
+
+struct CSM_PS_INPUT
+{
+	float4 position		: POSITION;
+#ifdef PLAT_PC
+	float  depth		: TEXCOORD0;
+#endif
+#ifdef ALPHA
+	float2 diffuseTex	: TEXCOORD1;
+#endif
+};
+
+#ifdef ALPHA
+CSM_PS_INPUT VSCSM( float4 position : POSITION, const float2 texUV : TEXCOORD0 )
+#else
+CSM_PS_INPUT VSCSM( float4 position : POSITION )
+#endif
+{
+	CSM_PS_INPUT OUT;
+
+#if defined(CAR_SHADER) &amp;&amp; defined(PLAT_PC)
+	position = position * 10.f;
+#endif
+	position.w = 1.0f;
+	position = mul( cmWorldMatTranspose, position );
+	position = mul( position, cmCSMTransform );
+
+	OUT.position = position;
+#ifdef PLAT_PC
+	OUT.position.y = -OUT.position.y;
+	OUT.depth = position.z; 
+#endif
+#ifdef ALPHA
+#ifdef CAR_SHADER
+	OUT.diffuseTex.xy = texUV.xy;
+#else
+	OUT.diffuseTex.xy = DeCompressTextCoords(texUV.xy);
+#endif
+#endif
+
+	return OUT;
+}
+
+#if defined( PLAT_PC ) || defined( ALPHA )
+float4 PSCSM( const CSM_PS_INPUT input ) : COLOR0
+{
+#ifdef ALPHA
+	float4 v_tex = tex2D( SHADOW_SAMPLER, input.diffuseTex );
+	clip( v_tex.SHADOW_SAMPLER_CHANNEL - 0.2 );
+#endif
+#ifdef PC
+	return float4( input.depth, input.depth, input.depth, input.depth );
+#else
+	return 0.0f;
+#endif
+}
+#endif
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+technique RenderCSM
+&lt;
+	string viewtag = "SHADOW";
+	string lostag = "ANY";
+&gt;
+{
+	pass p0
+	&lt;
+		string depthstencil = "default";
+		string blend = "default";
+		string rasterizer = "default";
+	&gt;
+	{
+		VertexShader = compile vs_2_0 VSCSM();
+#if defined( PLAT_PC ) || defined( ALPHA )
+		PixelShader = compile ps_2_0 PSCSM();
+#else
+		PixelShader = NULL;
+#endif
+	}
+}
+
+#endif
+</file>
+ </files>
+ <tool name="Compiler">
+  <defines>
+   <define name="SHADER_DEBUG" value="" />
+   <define name="PLAT_XENON" value="" />
+   <define name="SHADERMODEL_3_0" value="" />
+  </defines>
+  <arguments>
+   <argument name="/Zi" value="false" />
+   <argument name="/Vd" value="false" />
+   <argument name="/Xu0_deprecated" value="false" />
+   <argument name="/Odu_deprecated" value="false" />
+   <argument name="/XOd_" value="false" />
+   <argument name="/XOu" value="false" />
+   <argument name="/Xmaxtempreg" value="0" />
+   <argument name="PsSampBase" value="0" />
+   <argument name="PsSampCount" value="0" />
+   <argument name="VsSampBase" value="0" />
+   <argument name="VsSampCount" value="0" />
+   <argument name="VsInstCount" value="0" />
+   <argument name="PsInstCount" value="0" />
+   <argument name="/Od" value="false" />
+   <argument name="/Zpr" value="true" />
+   <argument name="/Zpc" value="false" />
+   <argument name="/Gpp" value="false" />
+   <argument name="/Op" value="false" />
+   <argument name="/Gfa" value="false" />
+   <argument name="/Gfp" value="true" />
+   <argument name="/XZc:zeroInit" value="false" />
+   <argument name="/XVe" value="false" />
+   <argument name="/Xbe:3-" value="false" />
+   <argument name="/Xbe:1-" value="false" />
+   <argument name="/XQInomaskedexports" value="false" />
+   <argument name="/XOautoz" value="false" />
+  </arguments>
+ </tool>
+ <shaders>
+  <shader entrypoint="VSCSM" target="vs_3_0" ZPass="0" pdbHint="4e4a0000-9d8f57ed-c96b6db8">
+   <constanttable>
+    <constant register="c188" count="4">
+     <type name="cmCSMTransform" class="matrix_rows" type="float" rows="4" columns="4" />
+    </constant>
+    <constant register="c8" count="4">
+     <type name="cmWorldMatTranspose" class="matrix_rows" type="float" rows="4" columns="4" />
+    </constant>
+   </constanttable>
+   <sourcemap>
+    <statement pc="3" file="2" line="36" scope="-1" lastinstruction="0" />
+    <statement pc="0.1" file="2" line="36" scope="-1" lastinstruction="0" />
+    <statement pc="4" file="2" line="45" scope="-1" lastinstruction="0" />
+    <statement pc="5" file="2" line="45" scope="-1" lastinstruction="0" />
+    <statement pc="6" file="2" line="45" scope="-1" lastinstruction="0" />
+    <statement pc="7" file="2" line="45" scope="-1" lastinstruction="0" />
+    <statement pc="8" file="2" line="46" scope="-1" lastinstruction="0" />
+    <statement pc="9" file="2" line="46" scope="-1" lastinstruction="0" />
+    <statement pc="10" file="2" line="46" scope="-1" lastinstruction="0" />
+    <statement pc="11" file="2" line="46" scope="-1" lastinstruction="0" />
+    <statement pc="2.0" file="2" line="46" scope="-1" lastinstruction="0" />
+    <statement pc="2.1" file="2" line="61" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="VSCSM" retID="8">
+     <parameter id="7" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+    <vfetch Address="3" Register="0" DestSwizzle="xyz1" Semantic="0x00" End="false" />
+   </VfetchInfo>
+   <InterpolatorInfo>
+   </InterpolatorInfo>
+   <LiteralFloats>
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+ </shaders>
+</shader-pdb>

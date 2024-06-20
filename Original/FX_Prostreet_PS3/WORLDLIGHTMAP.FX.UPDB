@@ -1,0 +1,906 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shader-pdb pdbHint="4e4a0001-23bb494b-a1a16d22" version="6132">
+ <files>
+  <file id="0" path="D:\eax-build1-s09-xenon\Oban\Speed\Xenon\Src\Render\Shaders\worldlightmap.fx" time="01c7f8c7-b119f754">//
+// World Light Map
+//
+#include "global.h"
+
+shared float4x4 cmWorldView			: REG_cmWorldView;
+shared float4	cmLocalDirectionMatrix[4]	: REG_cmLocalDirectionMatrix;
+shared float4x4 cmLocalPositionMatrix	: REG_cmLocalPositionMatrix;
+shared float4	cmLocalColourMatrix[4]		: REG_cmLocalColourMatrix;
+
+shared float4 cvTextureOffset		: REG_cvTextureOffset; //TEXTUREANIMOFFSET;
+
+shared float4	cvLocalLightVec		: REG_cvLocalLightVec; //LOCALLIGHTDIRVECTOR;
+shared float4	cvDiffuseColour		: REG_cvDiffuseColour; //DIFFUSECOLOUR;
+shared float3	cvLocalEyePos		: REG_cvLocalEyePos; //LOCALEYEPOS;
+
+shared float	cfMipMapBias		: REG_cfMipMapBias; //MIPMAPBIAS; 
+
+sampler DIFFUSE_SAMPLER = sampler_state
+{
+	AddressU = WRAP;
+	AddressV = WRAP;
+	MIPFILTER = LINEAR;
+	MINFILTER = LINEAR;
+	MAGFILTER = LINEAR;
+};
+
+#include "lightmap.h"	// lightmap, directional occlusion samplers
+#include "headlights.h"
+
+/*
+	STUB SHADER !!!!
+*/
+struct VS_INPUT
+{
+	float4 position		: POSITION;
+	float4 vertexCol	: COLOR0;
+	float4 tex			: TEXCOORD0;
+	float4 texlightmap	: TEXCOORD1;
+	float3 normal		: NORMAL;
+
+};
+
+float4 vertex_shader(const VS_INPUT IN) : POSITION
+{
+	return world_position(IN.position);
+}
+
+float4 pixel_shader() : COLOR0
+{
+	return float4(1, 0, 0, 1);	// hot red
+}
+
+technique lightmap_stub &lt;int shader = 1;&gt;
+{
+    pass p0
+    {
+		VertexShader = compile vs_1_1 vertex_shader();
+        PixelShader  = compile ps_2_0 pixel_shader();
+    }
+}
+
+/*
+
+struct VS_INPUT
+{
+	float4 position		: POSITION;
+	float4 vertexCol	: COLOR0;
+	float4 tex			: TEXCOORD0;
+	float4 texlightmap	: TEXCOORD1;
+	float3 normal		: NORMAL;
+
+};
+
+struct VtoP
+{
+	float4 position		: POSITION;
+	float3 spotLight	: COLOR0;
+	float4 tex			: TEXCOORD0_centroid;
+	float4 diffuse		: TEXCOORD1_centroid;
+	float3 FogAdd		: TEXCOORD2_centroid;
+	float3 FogMod		: TEXCOORD3_centroid;
+	float4 texlightmap	: TEXCOORD4_centroid;
+	float  NdotL		: TEXCOORD5_centroid;
+	float4 PosLocal		: TEXCOORD6_centroid;	
+	float4 ProjCoord1	: TEXCOORD7;
+	float ClipCoord1	: TEXCOORD8;
+	float4 ProjCoord2	: TEXCOORD9;
+	float ClipCoord2	: TEXCOORD10;
+	float3 Normal		: TEXCOORD11;	
+	half   Fog			: FOG0;
+	float4 vertexCol	: COLOR1;
+	
+};
+
+struct PS_OUTPUT
+{
+	float4 color : COLOR0;
+};
+
+struct VtoP_Depth
+{
+	float4 position : POSITION; 
+	float dist		: COLOR0;
+};
+
+#include "shadowmap_fx_def.h"
+
+//
+// This is debug code and will be removed!!!!!!
+//
+float3 SpotLightTester(int lightIndex, float3 position, float3 normal, float3 viewDir)
+{
+	float4 lightPos    = cmLocalPositionMatrix[lightIndex];
+	float4 lightColour = cmLocalColourMatrix[lightIndex];
+	float4 lightDir	   = cmLocalDirectionMatrix[lightIndex];
+	
+	//return saturate(lightDir.xyz);
+
+	
+	float3 dist = lightPos.xyz - position;
+	float3 pos2LightDir = normalize(dist);
+	float  distSqr = dot(dist, dist);
+	
+        //// habib added multiply by 2 for dist2 for faster falloff
+	float3 intensity = lightColour.w / (distSqr);// / (2*dist2+1);//lightColour.xyz/ (dist2*2.0+1);// Colour and inverse squared falloff  
+	// Diffuse
+	float  ndotl = dot(normal, lightDir);
+	//return saturate(ndotl) * intensity;
+	return intensity*2;
+	//return saturate(dot(-lightDir, pos2LightDir));
+
+	// Specular
+	//float specularCoeff = saturate(dot(2*ndotl*normal-lightDir, viewDir));
+	//specular += pow(specularCoeff, 25) * intensity * 1.75;
+	
+}
+
+// --------------------------------------------------------------------------
+
+
+VtoP vertex_shader(const VS_INPUT IN)
+{
+	VtoP OUT;
+	OUT.position = world_position(IN.position);
+	OUT.PosLocal    = IN.position;
+
+	OUT.tex = IN.tex + cvTextureOffset;
+	OUT.tex.w = cfMipMapBias;
+	
+	OUT.texlightmap = IN.texlightmap;
+	OUT.texlightmap.w = 1.0f;
+	OUT.vertexCol = IN.vertexCol;
+	
+	float3 lightDir = normalize(cvLocalLightVec);
+	float3 viewDir = normalize(cvLocalEyePos.xyz - IN.position.xyz);
+	float ndotL = saturate(dot(IN.normal, lightDir));
+
+	OUT.NdotL = ndotL;
+
+	OUT.diffuse = ndotL * cvDiffuseColour;
+
+	float dist = mul(IN.position, cmWorldView).z;
+	float cos_theta = dot(lightDir, viewDir);
+	CalcFog(dist, cos_theta, OUT.FogAdd.xyz, OUT.FogMod.xyz);
+
+	OUT.Normal = IN.normal;
+
+	// The code below is a bit magical. It assumes a far clip plane of the headlight-projection to be 100
+	// So anything beyond 100 will be clamped to 1.0 in the texture
+	// Anything behind the far (-z) will be less than 0.5 (which in the texture that we created in eInitHeadlightEffect() will also be zero
+	OUT.ProjCoord1 = 0;//mul(IN.position, cmHeadlight1WVP);
+	OUT.ClipCoord1  = 0;//(OUT.ProjCoord1.w * 0.005f) + 0.5f;   
+	OUT.ProjCoord2 = 0;//mul(IN.position, cmHeadlight2WVP);
+	OUT.ClipCoord2  = 0;//(OUT.ProjCoord2.w * 0.005f) + 0.5f;
+
+
+        OUT.spotLight = 0;//SpotLightTester(0, IN.position.xyz, IN.normal, viewDir);
+	OUT.Fog = CalcVertexFog(OUT.position, IN.position);
+	
+	return OUT;
+}
+
+// --------------------------------------------------------------------------
+
+float4 pixel_shader(const VtoP IN) : COLOR0
+{
+	float4 base		= tex2Dbias(DIFFUSE_SAMPLER, IN.tex);
+	float4 lightmap = tex2D(LIGHTMAP_SAMPLER, IN.texlightmap.xy);
+	float4 domap	= tex2D(DOMAP_SAMPLER, IN.texlightmap.xy);
+	float4 result;
+   
+	// There is no ambient value!
+
+
+
+
+	float3 headlightColour = 0;//CalcHeadlight1Colour(IN.ProjCoord1, IN.ClipCoord1);
+	//headlightColour += CalcHeadlight2Colour(IN.ProjCoord2, IN.ClipCoord2);
+
+	float3 LightVec = normalize( cmLocalPositionMatrix[0].xyz - IN.PosLocal);
+	float dist = length(cmLocalPositionMatrix[0].xyz - IN.PosLocal);
+	headlightColour.xyz += 1/dist * dot(cmLocalDirectionMatrix[0].xyz, -LightVec);
+	headlightColour.xyz *= 5 * pow(clamp(dot(LightVec, IN.Normal),0,1),2);
+	
+	result.xyz = IN.vertexCol.xyz;
+
+    	// Blend in Lightmaps
+	float scale = (1-IN.vertexCol.g) * (lightmap.y) + IN.vertexCol.g;
+	result.xyz *= scale * 0.5 + 0.5;   
+	
+	result.xyz += headlightColour;
+
+	result.xyz += domap * 0.000001;		// ensures domap sampler state is not optimized out
+//	result.xyz += IN.spotLight;
+	result.xyz *= base;
+
+
+	
+	result.xyz *= IN.FogMod.xyz;
+	result.xyz += IN.FogAdd.xyz;
+	result.w = base.w;
+
+	result = float4(1,0,0,0);
+
+	result = CalcFogColour(result, IN.Fog);
+
+	return result;
+}
+
+// --------------------------------------------------------------------------
+
+technique lightmap &lt;int shader = 1;&gt;
+{
+    pass p0
+    {
+		VertexShader = compile vs_1_1 vertex_shader();
+        PixelShader  = compile ps_2_0 pixel_shader();
+    }
+}
+
+
+
+
+
+// --------------------------------------------------------------------------
+
+
+/////////////////////////////////////////////////////////////////////////////
+//                                                                         //
+//	ShadowMap Mesh Techniques  											   //
+//                                                                         //
+/////////////////////////////////////////////////////////////////////////////
+
+float4 shadowmapmesh_vertex_shader(float4 position : POSITION) : POSITION
+{
+	float4 pos = world_position(position);
+	pos.z -= 0.001f;
+	return pos;
+}
+
+float4 shadowmapmesh_pixelShader() : COLOR0
+{
+	return cvDiffuseColour;
+}
+
+technique debugShadowMapMesh
+{
+    pass p0
+    {
+
+	    
+	    VertexShader = compile vs_1_1 shadowmapmesh_vertex_shader();
+        PixelShader  = compile ps_1_1 shadowmapmesh_pixelShader();
+    }
+}
+
+technique shadowMapMesh
+{
+    pass p0
+    {
+
+	    
+        VertexShader = compile vs_1_1 shadowmapmesh_vertex_shader();
+        //PixelShader  = compile ps_1_1 shadowmapmesh_pixelShader();
+        PixelShader  = NULL;
+    }
+}
+
+
+#include "ZPrePass_fx.h"
+
+#include "shadowmap_fx.h"
+*/</file>
+  <file id="1" path="D:\eax-build1-s09-xenon\Oban\Speed\Xenon\Src\Render\Shaders\global.h" time="01c7f8c7-b0ef0cee">#ifndef GLOBAL_H
+#define GLOBAL_H
+
+#include "registermap.h"   
+
+// Defined out for the Xbox360 - only needed on the PC
+#define DECLARE_TEXTURE(texture)	
+#define ASSIGN_TEXTURE(texture)	
+#define DECLARE_MINFILTER(default_filter)			 MINFILTER = default_filter;
+#define DECLARE_MAGFILTER(default_filter)			 MAGFILTER = default_filter;
+#define DECLARE_MIPFILTER(default_filter)			 MIPFILTER = default_filter;
+
+/////////////////////////////////////////////////////////////////////////////////////////
+float4x4	cmWorldViewProj			: REG_cmWorldViewProj; //WORLDVIEWPROJECTION ;
+float4		cvScreenOffset			: REG_cvScreenOffset; //SCREENOFFSET;
+float4		cvVertexPowerBrightness : REG_cvVertexPowerBrightness;
+
+float4 world_position( float4 screen_pos )
+{
+ 	float4 p = mul(screen_pos, cmWorldViewProj);  
+	p.xy += cvScreenOffset.xy * p.w;
+    return p;
+}
+
+float4 screen_position( float4 screen_pos )
+{
+	screen_pos.xy += cvScreenOffset.xy;
+    return screen_pos;
+}
+
+float4 CalcVertexColour(float4 colour)
+{
+	float4 result = pow(colour, cvVertexPowerBrightness.x) * cvVertexPowerBrightness.y;
+	result.w = colour.w;
+	return result;
+}
+
+float3 ScaleHeadLightIntensity(float3 colour) 
+{
+	float3 result = colour * cvVertexPowerBrightness.z;
+	return result;
+}
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////
+// HDR Colour Space compression
+//
+// Convert to a log or psudeo-log colour space to save high dynamic range data
+/////////////////////////////////////////////////////////////////////////////////////////
+#define kCompressCoeff ( 1.0f )
+float3 CompressColourSpace(float3 colour)
+{
+	return colour / (kCompressCoeff+colour);
+}
+
+float3 DeCompressColourSpace(float3 colour)
+{
+	return colour / (kCompressCoeff-colour);
+}
+
+
+/////////////////////////////////////////////////////////////////////////////////////////
+// RGBE8 Encoding/Decoding
+// The RGBE8 format stores a mantissa per color channel and a shared exponent 
+// stored in alpha. Since the exponent is shared, it's computed based on the
+// highest intensity color component. The resulting color is RGB * 2^Alpha,
+// which scales the data across a logarithmic scale.
+/////////////////////////////////////////////////////////////////////////////////////////
+
+float4 EncodeRGBE8( in float3 rgb )	  
+{
+	float4 vEncoded;
+
+    // Determine the largest color component
+	float maxComponent = max( max(rgb.r, rgb.g), rgb.b );
+	
+	// Round to the nearest integer exponent
+	float fExp = ceil( log2(maxComponent) );
+
+    // Divide the components by the shared exponent
+	vEncoded.rgb = rgb / exp2(fExp);
+	
+	// Store the shared exponent in the alpha channel
+	vEncoded.a = (fExp + 128) / 255;
+
+	return vEncoded;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+float3 DecodeRGBE8( in float4 rgbe )
+{
+	float3 vDecoded;
+
+    // Retrieve the shared exponent
+	float fExp = rgbe.a * 255 - 128;
+	
+	// Multiply through the color components
+	vDecoded = rgbe.rgb * exp2(fExp);
+	
+	return vDecoded;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+#endif</file>
+  <file id="2" path="D:\eax-build1-s09-xenon\Oban\Speed\Xenon\Src\Render\Shaders\registermap.h" time="01c7f8c7-b0d997bb">
+// ------------------------------------------------------------------------------------------------------------------------------------------
+
+#define CONSTANT_RESERVED_DO_NOT_USE			(0)		/* 4 vectors [c0,c3] */
+
+// ------------------------------------------------------------------------------------------------------------------------------------------
+
+#define REG_RESERVED_DO_NOT_USE			register(c0)	/* 4 vectors [c0,c3] */
+
+#define REG_cmWorldMat					register(c4)	/* 4 vectors [c0,c3] */
+#define REG_cmWorldMatTranspose			register(c8)	/* 4 vectors [c4,c7] */
+#define REG_cmWorldView					register(c12)	/* 4 vectors [c8,c11] */
+#define REG_cmShadowMapWVP				register(c16)	/* 4 vectors [c12,c15] */
+#define REG_cmLightWVP					register(c20)	/* 4 vectors [c16,c19] */
+#define REG_cmWorldViewProj				register(c24)	/* 4 vectors [c20,c23] */
+#define REG_cmPrevWorldViewProj			register(c28)	/* 4 vectors [c24,c27] */
+#define REG_cvLocalEyePos				register(c32)	/* 1 vecotr	 [c32] */
+#define REG_cvLocalLightVec				register(c33)	/* 1 vecotr	 [c33] */
+#define REG_cfSkyDomeRotation			register(c34)	/* 1 vecotr	 [c34] */
+
+#define REG_cmLocalColourMatrix			register(c36)	/* 4 vectors [c36,c39] */
+#define REG_cmLocalDirectionMatrix		register(c40)	/* 4 vectors [c40,c43] */
+#define REG_cmLocalPositionMatrix		register(c44)	/* 4 vectors [c44,c47] */
+#define REG_cavHarmonicCoeff			register(c48)	/* 10 floats, 3 vectors, 1 pad vector [48,51] */
+
+#define REG_camBlendMatrices			register(c52)	/* 16 vectors [c52,c67] */
+#define REG_cavWorldHeadlightDirection	register(c68)	/* 2 vectors [c68,c69] */
+#define REG_cavWorldHeadlightPosition	register(c70)	/* 2 vectors [c70,c71] */
+#define REG_cavWorldHeadlightUpDirection register(c72)	/* 2 vectors [c72,c73] */
+
+#define REG_cmShadowMapVP				register(c68) // note clash with head light
+#define REG_cmShadowMapBiasMatrix		register(c72)	/* 4 vectors [c72, c75] */
+
+
+
+#define REG_cvWorldSunColour			register(c79)
+#define REG_cvWorldAmbientColour		register(c80)
+
+// available: [c82,c115] (but would alias cavPcaWeightsR and cavPcaWeightsG)
+// PCA/UCap parameters (ucap.fx, water.fx)
+#define REG_cafPcaMean					register(c81)	/* 1 vector */
+#define REG_cavPcaWeightsR				register(c82)	/* 22 vectors [c82,c103] */
+#define REG_cavPcaWeightsG				register(c104)	/* 22 vectors [c104,c125] */
+#define REG_cavPcaWeightsB				register(c126)	/* 22 vectors [c126,c147] */
+#define REG_cavPcaWeightsX				register(c148)	/* 8 vectors [c148,c155] */
+#define REG_cavPcaWeightsY				register(c156)	/* 8 vectors [c156,c163] */
+#define REG_cavPcaWeightsZ				register(c164)	/* 8 vectors [c164,c171] */
+#define REG_cavPcaWeightsNX				register(c172)	/* 8 vectors [c172,c179] */
+#define REG_cavPcaWeightsNY				register(c180)	/* 8 vectors [c180,c187] */
+#define REG_cavPcaWeightsNZ				register(c188)	/* 8 vectors [c188,c195] */
+#define REG_cavFeatureHeights			register(c196)	/* 1 vector */
+
+
+// The following parameters alias cavPcaWeightsG:
+#define REG_cfMipMapBias				register(c116)
+#define REG_cfBrightness				register(c117)
+#define REG_cfSurfaceReflection			register(c118)
+#define REG_cfRainIntensity				register(c119)
+#define REG_cfSpecularPower				register(c120)
+#define REG_cfMetallicScale				register(c121)
+#define REG_cfEnvmapPullAmount			register(c122)
+#define REG_cfEnvmapPower				register(c123)
+#define REG_PAD2						register(c125)
+
+// The following parameters alias cavPcaWeightsB:
+#define REG_cfCombinedBrightness		register(c126)
+#define REG_cvVisualEffectFadeColour	register(c127)	/* also aliases cfSkyAlphaTag */
+#define REG_cfSkyAlphaTag				register(c127)	/* also aliases cvVisualEffectFadeColour */
+#define REG_cfShadowVolumeOffset		register(c128)
+#define REG_cfRVMWorldBrightness		register(c129)
+#define REG_cfDesaturation				register(c130)
+#define REG_cfBloomScale				register(c131)
+#define REG_cfSplitScreenUVScale		register(c132)
+#define REG_cfColourCubeFilterBlend		register(c133)
+#define REG_cfTimeTicker				register(c134)
+#define REG_cfMiddleGray				register(c135)
+#define REG_cfBrightPassThreshold		register(c136)
+
+#define REG_cvScreenOffset				register(c137)
+#define REG_cvFog_Br_Plus_Bm			register(c138)
+#define REG_cvFog_One_Over_BrBm			register(c139)
+#define REG_cvFog_Const_1				register(c140)
+#define REG_cvFog_Const_2				register(c141)
+#define REG_cvFog_Const_3				register(c142)
+#define REG_cvAmbientColour				register(c143)
+#define REG_cvShadowParams0				register(c144)
+#define REG_cvShadowParams1				register(c145)
+
+
+// The following parameters alias cavPcaWeightsX:
+#define REG_cvDiffuseColour				register(c148)
+#define REG_cvSpecularColour			register(c149)
+// available: [c150,c155] (but would alias cavPcaWeightsX)
+
+// The following parameters alias cavPcaWeightsY:
+#define REG_cvShadowColour				register(c156)
+#define REG_cvTextureOffset				register(c161)
+#define REG_cvLocalCenter				register(c162)
+#define REG_cvTreeParams				register(c163)
+
+// The following parameters alias cavPcaWeightsZ:
+#define REG_cvBaseAlphaRef				register(c164)
+#define REG_cvCloudIntensity			register(c165)
+#define REG_cvLocalLightPos				register(c166)
+#define REG_cvPixelizationScale			register(c167)
+#define REG_cvGrassColour				register(c169)
+
+// The following parameters alias cavPcaWeightsNX:
+#define REG_cvDepthOfFieldParams		register(c172)	/* aliases cavFeatureHeights */
+#define REG_cvBlurParams				register(c173)
+// The following parameters alias cavPcaWeightsNX and cavPcaWeightsNY:
+#define REG_cavSampleOffsetWeights		register(c174)	/* 16 vectors [c174,c189] */
+
+#define REG_PAD0						register(c190)	/* free space!! */
+
+#define REG_cvFogValue					register(c206)
+#define REG_cvFogColour					register(c207)
+#define REG_cfSkyFogFalloff				register(c208)
+#define REG_cfLightMapVertColBlend		register(c209)
+
+#define REG_cvLightColour				register(c210)
+#define REG_cvLightPosition				register(c211)
+
+#define REG_cvLightDirection			register(c212)
+#define REG_cfShadowMapEnabled			register(c213)
+#define REG_cfVSMEnabled				register(c214)
+#define REG_cfReceiveShadow				register(c215)
+
+#define REG_cvVertexPowerBrightness		register(c216)
+
+#define REG_cfFogEnable					register(c240)
+
+
+
+// Light Material Registers - alias REG_cavLightDirections
+
+#define REG_cvDiffuseMin				register(c228)
+#define REG_cvDiffuseRange				register(c229)
+#define REG_cvEnvmapMin					register(c230)
+#define REG_cvEnvmapRange				register(c231)
+#define REG_cvSpecularMin				register(c232)
+#define REG_cvSpecularRange				register(c233)
+#define REG_cvSpecular1Min				register(c234)
+#define REG_cvSpecular1Range			register(c235)
+#define REG_cvPowers					register(c236)
+#define REG_cvClampAndScales			register(c237)
+#define REG_cvFlakes					register(c238)
+#define REG_cvVinylScales				register(c239)
+
+#define	REG_cvGradientParams            register(c240)
+#define	REG_cvGradientColour            register(c241)
+#define	REG_cvGradientColourE           register(c242)
+#define	REG_ScreenRez                  	register(c243)
+#define REG_cfScaleUVs					register(c244)
+
+// for the constants heavy shader instancing
+// 4 vectors, c4 to c7
+#define REG_cmInstanceVP					register(c4)
+#define REG_cvInstanceData					register(c8)
+#define REG_cvInstanceWorldSunPosition		register(c9)
+#define REG_cvInstanceWorldSunColour		register(c10)
+#define REG_cvInstanceWorldAmbientColour	register(c11)
+#define REG_cvInstancedFogColour			register(c12)
+#define REG_cvInstancedFogValue				register(c13)
+#define REG_cvInstanceArray					register(c14)
+
+
+// Aliased With Light Materials ...
+
+#define REG_cfDrawDepthOfField			register(c230)
+
+
+#define REG_ciVSMEnabled				register(c)
+#define REG_ciShadowMapPCFLevel			register(c)
+#define REG_ciShadowMapAlphaEnabled		register(c)
+#define REG_ciDoCarShadowMap			register(c)
+#define REG_cbIsParallexMapped			register(c)
+#define REG_cbDecompressPCA				register(c)
+
+#define REG_DIFFUSE_SAMPLER				register(c)
+#define REG_HEIGHTMAP_SAMPLER			register(c)
+#define REG_MISCMAP1_SAMPLER			register(c)
+#define REG_MISCMAP2_SAMPLER			register(c)
+#define REG_MISCMAP3_SAMPLER			register(c)
+#define REG_MISCMAP4_SAMPLER			register(c)
+#define REG_OPACITY_SAMPLER				register(c)
+#define REG_VOLUMEMAP_SAMPLER			register(c)
+#define REG_ENVIROMAP_SAMPLER			register(c)
+#define REG_NORMALMAP_SAMPLER			register(c)
+#define REG_SHADOWMAP_SAMPLER			register(c)
+#define REG_SHADOWVOLUME_COLOUR			register(c)
+#define REG_SPECULARMAP_SAMPLER			register(c)
+#define REG_PCA_COMPONENTS0_SAMPLER		register(c)
+#define REG_PCA_COMPONENTS1_SAMPLER		register(c)
+#define REG_PCA_COMPONENTS2_SAMPLER		register(c)
+#define REG_PCA_COMPONENTS3_SAMPLER		register(c)
+#define REG_HEADLIGHT_SAMPLER			register(c)
+#define REG_HEADLIGHT_CLIP_SAMPLER		register(c)
+#define REG_MIPMAP_GEN_SAMPLER			register(c)
+
+
+
+
+
+</file>
+  <file id="3" path="D:\eax-build1-s09-xenon\Oban\Speed\Xenon\Src\Render\Shaders\lightmap.h" time="01c7f8c7-b0f633ff">#ifndef _LIGHTMAP_H_
+#define _LIGHTMAP_H_
+
+shared float	cfLightMapVertColBlend	: REG_cfLightMapVertColBlend; 
+
+sampler LIGHTMAP_SAMPLER = sampler_state
+{
+	AddressU = CLAMP;
+	AddressV = CLAMP;
+	MIPFILTER = LINEAR;
+	MINFILTER = LINEAR;
+	MAGFILTER = LINEAR;
+};
+
+sampler DOMAP_SAMPLER = sampler_state
+{
+	AddressU = CLAMP;
+	AddressV = CLAMP;
+	MIPFILTER = LINEAR;
+	MINFILTER = LINEAR;
+	MAGFILTER = LINEAR;
+};
+
+
+
+#endif</file>
+  <file id="4" path="D:\eax-build1-s09-xenon\Oban\Speed\Xenon\Src\Render\Shaders\headlights.h" time="01c7f8c7-b0f3d1a4">#ifndef HEADLIGHTS_H
+#define HEADLIGHTS_H
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Headlights
+//
+// This encapsulates some functionality for the projected headlights. 
+// The program needs to supply the shaders with 1 matrix and 2 samplers.
+//
+///////////////////////////////////////////////////////////////////////////////
+
+#include "global.h"
+
+
+shared float4 cavWorldHeadlightDirection[2]		: REG_cavWorldHeadlightDirection;
+shared float4 cavWorldHeadlightUpDirection[2]	: REG_cavWorldHeadlightUpDirection;
+shared float4 cavWorldHeadlightPosition[2]		: REG_cavWorldHeadlightPosition;
+
+// Texture map of a headlight on the road. Projected onto the world so use tex2DProj to sample
+sampler HEADLIGHT_SAMPLER = sampler_state
+{
+	AddressU = CLAMP;
+	AddressV = CLAMP;
+	// Turning off mipfilter because it looks horrible the texture only looks crisp with tex2Dbias and we can only use tex2Dproj
+	// We could get around this by manually dividing in the pixel shader, but I'd rather not add another instruction just yet
+	MIPFILTER = NONE;
+	MINFILTER = LINEAR;
+	MAGFILTER = LINEAR;
+};
+
+
+
+// This is a 1D texture that is created at runtime that is used to stop the headlight projection from appearing behind the car as well
+// as in front of it. There is also a bit of distance falloff as well.
+// It essentially breaks down into this:
+// 0 to 0.499 is black (this gets sampled for everything behind the car)
+// 0.5 to 0.9 is a falloff from pure white to black (this is for the spotlight ahead of the car)
+// 0.9 to 1.0 is black (because of linear filtering, sampling from 0.0 can also get a bit of 1.0 and vice versa, so give it a black border essentially)
+
+sampler HEADLIGHT_CLIP_SAMPLER = sampler_state
+{
+	AddressU = CLAMP;
+	AddressV = CLAMP;
+	MIPFILTER = NONE;
+	MINFILTER = LINEAR;
+	MAGFILTER = LINEAR;	
+};
+
+
+
+
+
+/*
+
+
+shared float4 cvHeadlight1Colour : REG_cvHeadlight1Colour;
+shared float4 cvHeadlight2Colour : REG_cvHeadlight2Colour;
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+
+// This matrix is a combination : (offset_matrix) * (object local_to_world) * (headlight view matrix) * (headlight projection matrix)
+// Given a point on an object, it returns the texture coordinates of the headlight projection texture to sample
+float4x4	cmHeadlight1WVP		: REG_cmHeadlight1WVP; 
+float4x4	cmHeadlight2WVP		: REG_cmHeadlight2WVP; 
+
+float3 CalcHeadlight1Colour(float4 projCoords, float clipCoord)
+{
+	// the tex2d result : this is the colour from the headlight texture
+	// the tex1D result : this should be either (0,0,0,0) or (1,1,1,1) depending upon if the projection is behind the car or not
+	
+	// Linear falloff.
+	float3 headlight_clip = tex1D(HEADLIGHT_CLIP_SAMPLER, clipCoord);
+	// I've got a bit of a conundrum here. tex2Dbias looks much better than tex2D. However we need tex2Dproj and there is no
+	// tex2Dprojbias. What we *could* do is do a manual division like so before sampling with tex2Dbias: projCoords.xyz /= projCoords.w
+	// However I don't want to add the extra instruction right now. Lets just disable mipmapping and see how well that works
+	float3 headlight_colour = tex2Dproj(HEADLIGHT_SAMPLER, projCoords) * headlight_clip * cvHeadlight1Colour.xyz;
+		
+	return headlight_colour;
+}
+
+float3 CalcHeadlight2Colour(float4 projCoords, float clipCoord)
+{
+	// the tex2d result : this is the colour from the headlight texture
+	// the tex1D result : this should be either (0,0,0,0) or (1,1,1,1) depending upon if the projection is behind the car or not
+
+	// Linear falloff.
+	float3 headlight_clip = tex1D(HEADLIGHT_CLIP_SAMPLER, clipCoord);
+	// I've got a bit of a conundrum here. tex2Dbias looks much better than tex2D. However we need tex2Dproj and there is no
+	// tex2Dprojbias. What we *could* do is do a manual division like so before sampling with tex2Dbias: projCoords.xyz /= projCoords.w
+	// However I don't want to add the extra instruction right now. Lets just disable mipmapping and see how well that works
+	float3 headlight_colour = tex2Dproj(HEADLIGHT_SAMPLER, projCoords) * headlight_clip * cvHeadlight2Colour.xyz;
+
+	return headlight_colour;
+}
+
+*/
+#endif</file>
+ </files>
+ <tool name="FXLite">
+  <defines>
+   <define name="PLAT_XENON" value="" />
+  </defines>
+  <arguments>
+   <argument name="/Zi" value="false" />
+   <argument name="/Vd" value="false" />
+   <argument name="/Xu0_deprecated" value="false" />
+   <argument name="/Odu_deprecated" value="false" />
+   <argument name="/XOd_" value="false" />
+   <argument name="/XOu" value="false" />
+   <argument name="/Xmaxtempreg" value="0" />
+   <argument name="PsSampBase" value="0" />
+   <argument name="PsSampCount" value="0" />
+   <argument name="VsSampBase" value="0" />
+   <argument name="VsSampCount" value="0" />
+   <argument name="VsInstCount" value="0" />
+   <argument name="PsInstCount" value="0" />
+   <argument name="/Od" value="false" />
+   <argument name="/Zpr" value="false" />
+   <argument name="/Zpc" value="false" />
+   <argument name="/Gpp" value="false" />
+   <argument name="/Op" value="false" />
+   <argument name="/Gfa" value="false" />
+   <argument name="/Gfp" value="false" />
+   <argument name="/XZc:zeroInit" value="false" />
+   <argument name="/XVe" value="false" />
+   <argument name="/Xbe:3-" value="false" />
+   <argument name="/Xbe:1-" value="false" />
+   <argument name="/XQInomaskedexports" value="false" />
+   <argument name="/XOautoz" value="false" />
+   <argument name="/XfxAv" value="false" />
+   <argument name="/XfxAs" value="false" />
+   <argument name="/XfxPv" value="false" />
+  </arguments>
+ </tool>
+ <shaders>
+  <shader entrypoint="pixel_shader" target="ps_3_0" FxlTechniqueName="lightmap_stub" FxlTechnique="0" FxlPassName="p0" FxlPass="0" ZPass="0" pdbHint="4e4a0000-23bb494b-a1a16d22">
+   <constanttable>
+   </constanttable>
+   <sourcemap>
+    <statement pc="1" file="0" line="51" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="pixel_shader" retID="53">
+    </function>
+    <function id="1" name="vertex_shader" retID="52">
+     <parameter id="51" />
+    </function>
+    <function id="2" name="DecodeRGBE8" retID="24">
+     <parameter id="23" />
+    </function>
+    <function id="3" name="EncodeRGBE8" retID="19">
+     <parameter id="18" />
+    </function>
+    <function id="4" name="DeCompressColourSpace" retID="17">
+     <parameter id="16" />
+    </function>
+    <function id="5" name="CompressColourSpace" retID="15">
+     <parameter id="14" />
+    </function>
+    <function id="6" name="ScaleHeadLightIntensity" retID="12">
+     <parameter id="11" />
+    </function>
+    <function id="7" name="CalcVertexColour" retID="9">
+     <parameter id="8" />
+    </function>
+    <function id="8" name="screen_position" retID="7">
+     <parameter id="6" />
+    </function>
+    <function id="9" name="world_position" retID="4">
+     <parameter id="3" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+   </VfetchInfo>
+   <InterpolatorInfo>
+   </InterpolatorInfo>
+   <LiteralFloats>
+    <Float Register="252" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="253" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="254" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="255" value0="1" value1="0" value2="0" value3="0" />
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+  <shader entrypoint="vertex_shader" target="vs_3_0" FxlTechniqueName="lightmap_stub" FxlTechnique="0" FxlPassName="p0" FxlPass="0" ZPass="0" pdbHint="4e4a0001-23bb494b-a1a16d22">
+   <constanttable>
+    <constant register="c24" count="4">
+     <type name="cmWorldViewProj" class="matrix_columns" type="float" rows="4" columns="4" />
+    </constant>
+    <constant register="c137">
+     <type name="cvScreenOffset" class="vector" type="float" columns="4" />
+    </constant>
+   </constanttable>
+   <sourcemap>
+    <statement pc="3" file="0" line="44" scope="-1" lastinstruction="0" />
+    <statement pc="0.1" file="0" line="44" scope="-1" lastinstruction="0" />
+    <statement pc="4" file="1" line="20" scope="-1" lastinstruction="0" />
+    <statement pc="5" file="1" line="20" scope="-1" lastinstruction="0" />
+    <statement pc="6" file="1" line="21" scope="-1" lastinstruction="0" />
+    <statement pc="7" file="1" line="21" scope="-1" lastinstruction="0" />
+    <statement pc="8" file="1" line="21" scope="-1" lastinstruction="0" />
+    <statement pc="9" file="0" line="46" scope="-1" lastinstruction="0" />
+    <statement pc="1.1" file="0" line="46" scope="-1" lastinstruction="0" />
+    <statement pc="2.0" file="0" line="46" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="pixel_shader" retID="53">
+    </function>
+    <function id="1" name="vertex_shader" retID="52">
+     <parameter id="51" />
+    </function>
+    <function id="2" name="DecodeRGBE8" retID="24">
+     <parameter id="23" />
+    </function>
+    <function id="3" name="EncodeRGBE8" retID="19">
+     <parameter id="18" />
+    </function>
+    <function id="4" name="DeCompressColourSpace" retID="17">
+     <parameter id="16" />
+    </function>
+    <function id="5" name="CompressColourSpace" retID="15">
+     <parameter id="14" />
+    </function>
+    <function id="6" name="ScaleHeadLightIntensity" retID="12">
+     <parameter id="11" />
+    </function>
+    <function id="7" name="CalcVertexColour" retID="9">
+     <parameter id="8" />
+    </function>
+    <function id="8" name="screen_position" retID="7">
+     <parameter id="6" />
+    </function>
+    <function id="9" name="world_position" retID="4">
+     <parameter id="3" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+    <vfetch Address="3" Register="1" DestSwizzle="xyzw" Semantic="0x00" End="false" />
+   </VfetchInfo>
+   <InterpolatorInfo>
+   </InterpolatorInfo>
+   <LiteralFloats>
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+ </shaders>
+</shader-pdb>

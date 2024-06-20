@@ -1,0 +1,1032 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shader-pdb pdbHint="4e4a0001-32368302-1fd5a0d7" version="6132">
+ <files>
+  <file id="0" path="D:\eax-build1-s09-xenon\Oban\Speed\Xenon\Src\Render\Shaders\smoke.fx" time="01c7f8c7-b106e47c">#define USE_MKRS_WAY
+
+#ifdef USE_MKRS_WAY 
+
+//
+// World Effects
+//
+
+#include "global.h"
+
+shared float3	cvInstanceWorldSunColour		: REG_cvInstanceWorldSunColour;
+
+#define BLUR_BACKGROUND
+
+
+shared float4 cvInstanceWorldSunPosition			: REG_cvInstanceWorldSunPosition;
+shared float4 cvInstanceData						: REG_cvInstanceData; //INSTANCEINFO;
+float4 cvInstanceArray[48*4]						: REG_cvInstanceArray;
+shared float4x4 cmInstanceVP						: REG_cmInstanceVP;
+
+sampler DIFFUSE_SAMPLER = sampler_state  
+{
+	AddressU = WRAP;
+	AddressV = WRAP;
+	MIPFILTER = LINEAR;
+	MINFILTER = LINEAR;
+	MAGFILTER = LINEAR;
+};
+
+struct VS_INPUT
+{
+	float4 position		: POSITION;
+	float4 color		: COLOR;
+	float4 tex			: TEXCOORD0;
+	float3 normal		: NORMAL;
+	int	index			: INDEX;
+};
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// PREP BUFFER SHADER
+//
+//
+
+struct PS_INPUT
+{
+	float4 position			: POSITION;
+	float3 tex_depth		: TEXCOORD0;	// xy = texcoord,		z = depth
+	float4 perlin_tex		: TEXCOORD1;	
+	float4 colour			: COLOR0;
+}; 
+
+struct PS_OUTPUT
+{
+	float4 colour : COLOR0;
+	float4 perlin : COLOR1;
+};
+
+float3 SmokeLightingModel( float diffuse, float3 diffuse_colour )
+{
+	diffuse = (0.2 + diffuse) / 1.2; // This creates wrap around lighting... prevent cg look to game
+
+	// Use reverse side of diffuse to take away flat look of game....
+	float diffuse_rev = 0.5 + 0.5* saturate(diffuse+1);
+
+	// Prevent negative lighting effects...
+	diffuse = max(0.0, diffuse);
+
+	float3 final = 0.5 * diffuse_rev + cvInstanceWorldSunColour * diffuse; // Simplified CH
+
+	return saturate(final * diffuse_colour);
+
+}
+
+
+PS_INPUT VS_Smoke(VS_INPUT IN)
+{
+	// cvInstanceData.x holds the number of indices in the index buffer
+	// So dividing the current vertex by the number of vertices to render gives you the primitive index that we are currently one
+	// We have 1 element in the instance buffer for each primitive
+	int iInstanceIndex = (IN.index + 0.5) / cvInstanceData.y;
+
+	float4 vInstanceOffset;
+	
+	float4 vTransform0;
+	float4 vTransform1;
+	float4 vTransform2;
+	float4 vTransform3;
+	
+
+	vTransform0 = cvInstanceArray[iInstanceIndex*4];
+	vTransform1 = cvInstanceArray[iInstanceIndex*4+1];
+	vTransform2 = cvInstanceArray[iInstanceIndex*4+2];
+	vTransform3 = cvInstanceArray[iInstanceIndex*4+3];
+
+	
+	float4 colour = float4(vTransform0.w, vTransform1.w, vTransform2.w, vTransform3.w);
+	vTransform0.w = 0.0;
+	vTransform1.w = 0.0;
+	vTransform2.w = 0.0;
+	vTransform3.w = 1.0;
+	
+	
+	float4x4 transformMat = (float4x4(vTransform0, vTransform1, vTransform2, vTransform3));
+	
+	// cvInstanceData.y is the offset from the start of the vertex buffer. It is pretty must always zero
+	// iMeshIndex is the current vertex in the vertex buffer. I.e. if our mesh only holds 1 triangle, then iMeshIndex will be either 0,1 or 2
+	//int iMeshIndex = Index - (iInstanceIndex * cvInstanceData.x) + cvInstanceData.y;
+
+
+	float4 vMeshPosition = IN.position;
+	float4 vMeshUV = IN.tex;
+	float4 vMeshNormal = float4(IN.normal,0);
+
+	// Move the object from local to world space based upon the matrix fetched from the second stream
+	vMeshPosition = mul(vMeshPosition, transformMat);
+
+	// we'll just assume this matrix is affine
+	// and that I am remembering the definition of affine correctly
+	vMeshNormal = mul(float4(vMeshNormal.xyz, 0), transformMat);
+	// the transform matrix may be scaled
+	// in fact it most likely is.
+	// so renormalize since we know that it is a uniform scale and not a shear
+	vMeshNormal = normalize(vMeshNormal);
+	 
+ 
+	PS_INPUT OUT;
+	OUT.position = mul(vMeshPosition, cmInstanceVP);
+
+	float3 lightDir = normalize(cvInstanceWorldSunPosition - vMeshPosition);
+	float diffuse	= dot( vMeshNormal.xyz, lightDir );
+	OUT.colour.xyz	= SmokeLightingModel( diffuse, colour.xyz );
+	OUT.colour.w	= colour.w;
+
+	OUT.tex_depth.xy	= vMeshUV.xy;
+
+	float4 world_normal = mul(transformMat, vMeshNormal.xyz);
+	OUT.perlin_tex.xy	= world_normal.xz*0.3;
+	OUT.perlin_tex.zw	= world_normal.yz*0.3;
+//0.3
+	// The depth is used to fade out the poly as it approaches the near plane
+	OUT.tex_depth.z		= saturate(OUT.position.z / OUT.position.w);
+
+	return OUT;
+}
+
+
+PS_OUTPUT PS_Smoke(const PS_INPUT IN)
+{
+ 
+	// Smoke Colour
+	
+//float mkr = diffuse;
+
+	PS_OUTPUT OUT;
+	OUT.colour.xyz = IN.colour.xyz;
+	OUT.colour.xyz = CompressColourSpace(OUT.colour.xyz);
+
+	// Smoke alpha mask
+	OUT.colour.w = IN.colour.w * tex2D(DIFFUSE_SAMPLER, IN.tex_depth.xy).w * IN.tex_depth.z;
+
+	// Perlin noise
+	OUT.perlin.xyz  = tex2D(DIFFUSE_SAMPLER, IN.perlin_tex.xy);
+	OUT.perlin.xyz += tex2D(DIFFUSE_SAMPLER, IN.perlin_tex.zw);
+	OUT.perlin.xyz /= 2;
+	OUT.perlin.w = OUT.colour.w;
+
+//OUT.colour.xyz = CompressColourSpace(OUT.perlin.xyz);
+/*
+OUT.perlin = 0;
+OUT.colour.w = 0.5;
+OUT.colour.xyz = mkr/2;
+*/
+	return OUT;
+}
+
+technique smoke
+{
+    pass p0
+    {
+		SeparateAlphaBlendEnable = true;
+		SrcBlendAlpha = ONE;
+		DestBlendAlpha = ONE;
+
+        VertexShader = compile vs_2_0 VS_Smoke();
+        PixelShader  = compile ps_2_0 PS_Smoke();
+    }
+}
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// SMOKE GEOMETRY PARTICLES SHADER
+//
+//
+
+#else
+
+//
+// World Effects
+//
+
+#include "global.h"
+
+shared float3	cvWorldSunColour		: REG_cvWorldSunColour;
+shared float3	cvWorldAmbientColour		: REG_cvWorldAmbientColour;
+
+#define BLUR_BACKGROUND
+
+shared float4x4 cmWorldView			: REG_cmWorldView;
+shared float4x4 cmWorldMat			: REG_cmWorldMat;
+shared float4x4 cmWorldMatTranspose	: REG_cmWorldMatTranspose;
+
+shared float4	cvLocalLightVec		: REG_cvLocalLightVec;
+shared float4	cvDiffuseColour		: REG_cvDiffuseColour;
+shared float3	cvLocalEyePos		: REG_cvLocalEyePos;
+//shared float3	cvWorldSunColour		: REG_cvWorldSunColour;
+//shared float3	cvWorldAmbientColour		: REG_cvWorldAmbientColour;
+
+sampler DIFFUSE_SAMPLER = sampler_state  
+{
+	AddressU = WRAP;
+	AddressV = WRAP;
+	MIPFILTER = LINEAR;
+	MINFILTER = LINEAR;
+	MAGFILTER = LINEAR;
+};
+
+sampler	DEPTHBUFFER_SAMPLER = sampler_state
+{
+	AddressU = CLAMP;
+	AddressV = CLAMP;
+	MIPFILTER =	LINEAR;
+	MINFILTER =	LINEAR;
+	MAGFILTER =	LINEAR;
+};
+
+sampler PERLINNOISE_SAMPLER = sampler_state  
+{
+	AddressU = WRAP;
+	AddressV = WRAP;
+	MIPFILTER = LINEAR;
+	MINFILTER = LINEAR;
+	MAGFILTER = LINEAR;
+};
+
+sampler	MISCMAP1_SAMPLER = sampler_state
+{
+	AddressU = WRAP;
+	AddressV = WRAP;
+	MIPFILTER =	LINEAR;
+	MINFILTER =	LINEAR;
+	MAGFILTER =	LINEAR;
+};
+
+struct VS_INPUT
+{
+	float4 position		: POSITION;
+	float4 color		: COLOR;
+	float4 tex			: TEXCOORD0;
+	float3 normal		: NORMAL;
+};
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// PREP BUFFER SHADER
+//
+//
+
+struct PS_INPUT
+{
+	float4 position			: POSITION;
+	float3 tex_depth		: TEXCOORD0;	// xy = texcoord,		z = depth
+	float4 perlin_tex		: TEXCOORD1;	
+	float3 normal			: TEXCOORD2;
+};
+
+struct PS_OUTPUT
+{
+	float4 colour : COLOR0;
+	float4 perlin : COLOR1;
+};
+
+PS_INPUT VS_Smoke(const VS_INPUT IN)
+{
+	PS_INPUT OUT;
+	
+	OUT.position		= world_position(IN.position);
+	OUT.tex_depth.xy	= IN.tex.xy;
+	OUT.normal			= IN.normal;
+
+	float4 world_normal = mul(cmWorldMat, IN.normal);
+	OUT.perlin_tex.xy	= world_normal.xz*0.3;
+	OUT.perlin_tex.zw	= world_normal.yz*0.3;
+//0.3
+	// The depth is used to fade out the poly as it approaches the near plane
+	OUT.tex_depth.z		= saturate(OUT.position.z / OUT.position.w);
+
+	return OUT;
+}
+
+
+float3 SmokeLightingModel( float diffuse, float3 diffuse_colour )
+{
+	diffuse = (0.2 + diffuse) / 1.2; // This creates wrap around lighting... prevent cg look to game
+
+	// Use reverse side of diffuse to take away flat look of game....
+	float diffuse_rev = 0.5 + 0.5* saturate(diffuse+1);
+
+	// Prevent negative lighting effects...
+	diffuse = max(0.0, diffuse);
+
+	float3 final = 0.5 * diffuse_rev + cvWorldSunColour * diffuse; // Simplified CH
+
+	return saturate(final * diffuse_colour);
+
+}
+
+PS_OUTPUT PS_Smoke(const PS_INPUT IN)
+{
+	PS_OUTPUT OUT;
+
+	// Smoke Colour
+	float diffuse = dot( IN.normal, cvLocalLightVec.xyz );
+//float mkr = diffuse;
+	OUT.colour.xyz = SmokeLightingModel( diffuse, cvDiffuseColour.xyz );	//float diffuse, float shadow, float3 base, float ambient_occlusion, float vertex_colour 
+	//OUT.colour.xyz = cvDiffuseColour.xyz * saturate(0.35 + saturate(diffuse*2));
+	//OUT.colour.xyz = cvDiffuseColour.xyz * saturate(0.5 + saturate(diffuse*5));
+	//OUT.colour.xyz = cvWorldSunColour*0.2;
+	OUT.colour.xyz = CompressColourSpace(OUT.colour.xyz);
+
+	// Smoke alpha mask
+	OUT.colour.w = cvDiffuseColour.w * tex2D(DIFFUSE_SAMPLER, IN.tex_depth.xy).w * IN.tex_depth.z;
+
+	// Perlin noise
+	OUT.perlin.xyz  = tex2D(DIFFUSE_SAMPLER, IN.perlin_tex.xy);
+	OUT.perlin.xyz += tex2D(DIFFUSE_SAMPLER, IN.perlin_tex.zw);
+	OUT.perlin.xyz /= 2;
+	OUT.perlin.w = OUT.colour.w;
+/*
+OUT.perlin = 0;
+OUT.colour.w = 0.5;
+OUT.colour.xyz = mkr/2;
+*/
+	return OUT;
+}
+
+technique smoke
+{
+    pass p0
+    {
+		SeparateAlphaBlendEnable = true;
+		SrcBlendAlpha = ONE;
+		DestBlendAlpha = ONE;
+
+        VertexShader = compile vs_2_0 VS_Smoke();
+        PixelShader  = compile ps_2_0 PS_Smoke();
+    }
+}
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// PREP BUFFER SHADER
+//
+//
+struct VS_INPUT_SCREEN
+{
+	float4 position	: POSITION;
+	float2 texcoord	: TEXCOORD;
+};
+
+struct PrepBuffersOut
+{
+	float4 colour0	: COLOR0;
+	float4 colour1	: COLOR1;
+	float  depth	: DEPTH0;
+};
+
+struct VS_PassThru_OUT
+{
+	float4 position	: POSITION;
+	float2 texcoord	: TEXCOORD;
+};
+
+VS_PassThru_OUT VS_PassThru(const VS_INPUT_SCREEN IN)
+{
+	VS_PassThru_OUT OUT;
+	OUT.position = IN.position;
+	OUT.texcoord	= IN.texcoord;
+
+	return OUT;
+}
+
+PrepBuffersOut PS_PrepSmokeBuffers(in float2 texCoord : TEXCOORD )
+{
+	PrepBuffersOut OUT;
+
+#ifdef BLUR_BACKGROUND
+	OUT.colour0 = float4(tex2D( DIFFUSE_SAMPLER, texCoord).xyz, 0);
+#else
+	OUT.colour0 = 0;
+#endif
+	//OUT.colour1 = float4(tex2D( PERLINNOISE_SAMPLER, texCoord).xyz, 0);
+	OUT.colour1 = float4(0.5,0.5,0.5,1);	// default middle grey implies no perlin offset
+	OUT.depth  =  tex2D( DEPTHBUFFER_SAMPLER, texCoord).x;
+
+	return OUT;
+}
+
+technique PrepSmokeBuffers
+{
+	pass p0
+	{
+		VertexShader = compile vs_1_1 VS_PassThru();
+		PixelShader	 = compile ps_2_0 PS_PrepSmokeBuffers();
+	}
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// SMOKE GEOMETRY PARTICLES SHADER
+//
+//
+struct CompositeOut
+{
+	float4 colour	: COLOR0;
+	float  depth	: DEPTH0;
+};
+
+CompositeOut PS_CompositeSmoke(in float2 texCoord : TEXCOORD0 )
+{
+	CompositeOut OUT;
+	OUT.depth  = tex2D( DEPTHBUFFER_SAMPLER, texCoord).x;
+
+	float4 original_backbuffer	= tex2D( DIFFUSE_SAMPLER,  texCoord);
+	
+	//
+	// Sample into the blurred buffer using a perlin noise offset
+	//
+	float2 perlin_noise	= tex2D( PERLINNOISE_SAMPLER, texCoord).xy * 2 - 1;
+	float4 solid_smoke	= tex2D( MISCMAP1_SAMPLER, texCoord + perlin_noise / 20);
+//30
+#ifdef BLUR_BACKGROUND
+	OUT.colour.xyz	= lerp(original_backbuffer.xyz, solid_smoke, saturate(solid_smoke.w*1.1));
+#else
+	OUT.colour.xyz	= original_backbuffer.xyz * (1-solid_smoke.w)  + solid_smoke;
+#endif
+	OUT.colour.w	= solid_smoke.w/2;  
+
+	return OUT;
+}
+
+technique CompositeSmoke
+{
+	pass p0
+	{
+		VertexShader = compile vs_1_1 VS_PassThru();
+		PixelShader	 = compile ps_2_0 PS_CompositeSmoke();
+	}
+}
+
+
+#endif</file>
+  <file id="1" path="D:\eax-build1-s09-xenon\Oban\Speed\Xenon\Src\Render\Shaders\global.h" time="01c7f8c7-b0ef0cee">#ifndef GLOBAL_H
+#define GLOBAL_H
+
+#include "registermap.h"   
+
+// Defined out for the Xbox360 - only needed on the PC
+#define DECLARE_TEXTURE(texture)	
+#define ASSIGN_TEXTURE(texture)	
+#define DECLARE_MINFILTER(default_filter)			 MINFILTER = default_filter;
+#define DECLARE_MAGFILTER(default_filter)			 MAGFILTER = default_filter;
+#define DECLARE_MIPFILTER(default_filter)			 MIPFILTER = default_filter;
+
+/////////////////////////////////////////////////////////////////////////////////////////
+float4x4	cmWorldViewProj			: REG_cmWorldViewProj; //WORLDVIEWPROJECTION ;
+float4		cvScreenOffset			: REG_cvScreenOffset; //SCREENOFFSET;
+float4		cvVertexPowerBrightness : REG_cvVertexPowerBrightness;
+
+float4 world_position( float4 screen_pos )
+{
+ 	float4 p = mul(screen_pos, cmWorldViewProj);  
+	p.xy += cvScreenOffset.xy * p.w;
+    return p;
+}
+
+float4 screen_position( float4 screen_pos )
+{
+	screen_pos.xy += cvScreenOffset.xy;
+    return screen_pos;
+}
+
+float4 CalcVertexColour(float4 colour)
+{
+	float4 result = pow(colour, cvVertexPowerBrightness.x) * cvVertexPowerBrightness.y;
+	result.w = colour.w;
+	return result;
+}
+
+float3 ScaleHeadLightIntensity(float3 colour) 
+{
+	float3 result = colour * cvVertexPowerBrightness.z;
+	return result;
+}
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////
+// HDR Colour Space compression
+//
+// Convert to a log or psudeo-log colour space to save high dynamic range data
+/////////////////////////////////////////////////////////////////////////////////////////
+#define kCompressCoeff ( 1.0f )
+float3 CompressColourSpace(float3 colour)
+{
+	return colour / (kCompressCoeff+colour);
+}
+
+float3 DeCompressColourSpace(float3 colour)
+{
+	return colour / (kCompressCoeff-colour);
+}
+
+
+/////////////////////////////////////////////////////////////////////////////////////////
+// RGBE8 Encoding/Decoding
+// The RGBE8 format stores a mantissa per color channel and a shared exponent 
+// stored in alpha. Since the exponent is shared, it's computed based on the
+// highest intensity color component. The resulting color is RGB * 2^Alpha,
+// which scales the data across a logarithmic scale.
+/////////////////////////////////////////////////////////////////////////////////////////
+
+float4 EncodeRGBE8( in float3 rgb )	  
+{
+	float4 vEncoded;
+
+    // Determine the largest color component
+	float maxComponent = max( max(rgb.r, rgb.g), rgb.b );
+	
+	// Round to the nearest integer exponent
+	float fExp = ceil( log2(maxComponent) );
+
+    // Divide the components by the shared exponent
+	vEncoded.rgb = rgb / exp2(fExp);
+	
+	// Store the shared exponent in the alpha channel
+	vEncoded.a = (fExp + 128) / 255;
+
+	return vEncoded;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+float3 DecodeRGBE8( in float4 rgbe )
+{
+	float3 vDecoded;
+
+    // Retrieve the shared exponent
+	float fExp = rgbe.a * 255 - 128;
+	
+	// Multiply through the color components
+	vDecoded = rgbe.rgb * exp2(fExp);
+	
+	return vDecoded;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+#endif</file>
+  <file id="2" path="D:\eax-build1-s09-xenon\Oban\Speed\Xenon\Src\Render\Shaders\registermap.h" time="01c7f8c7-b0d997bb">
+// ------------------------------------------------------------------------------------------------------------------------------------------
+
+#define CONSTANT_RESERVED_DO_NOT_USE			(0)		/* 4 vectors [c0,c3] */
+
+// ------------------------------------------------------------------------------------------------------------------------------------------
+
+#define REG_RESERVED_DO_NOT_USE			register(c0)	/* 4 vectors [c0,c3] */
+
+#define REG_cmWorldMat					register(c4)	/* 4 vectors [c0,c3] */
+#define REG_cmWorldMatTranspose			register(c8)	/* 4 vectors [c4,c7] */
+#define REG_cmWorldView					register(c12)	/* 4 vectors [c8,c11] */
+#define REG_cmShadowMapWVP				register(c16)	/* 4 vectors [c12,c15] */
+#define REG_cmLightWVP					register(c20)	/* 4 vectors [c16,c19] */
+#define REG_cmWorldViewProj				register(c24)	/* 4 vectors [c20,c23] */
+#define REG_cmPrevWorldViewProj			register(c28)	/* 4 vectors [c24,c27] */
+#define REG_cvLocalEyePos				register(c32)	/* 1 vecotr	 [c32] */
+#define REG_cvLocalLightVec				register(c33)	/* 1 vecotr	 [c33] */
+#define REG_cfSkyDomeRotation			register(c34)	/* 1 vecotr	 [c34] */
+
+#define REG_cmLocalColourMatrix			register(c36)	/* 4 vectors [c36,c39] */
+#define REG_cmLocalDirectionMatrix		register(c40)	/* 4 vectors [c40,c43] */
+#define REG_cmLocalPositionMatrix		register(c44)	/* 4 vectors [c44,c47] */
+#define REG_cavHarmonicCoeff			register(c48)	/* 10 floats, 3 vectors, 1 pad vector [48,51] */
+
+#define REG_camBlendMatrices			register(c52)	/* 16 vectors [c52,c67] */
+#define REG_cavWorldHeadlightDirection	register(c68)	/* 2 vectors [c68,c69] */
+#define REG_cavWorldHeadlightPosition	register(c70)	/* 2 vectors [c70,c71] */
+#define REG_cavWorldHeadlightUpDirection register(c72)	/* 2 vectors [c72,c73] */
+
+#define REG_cmShadowMapVP				register(c68) // note clash with head light
+#define REG_cmShadowMapBiasMatrix		register(c72)	/* 4 vectors [c72, c75] */
+
+
+
+#define REG_cvWorldSunColour			register(c79)
+#define REG_cvWorldAmbientColour		register(c80)
+
+// available: [c82,c115] (but would alias cavPcaWeightsR and cavPcaWeightsG)
+// PCA/UCap parameters (ucap.fx, water.fx)
+#define REG_cafPcaMean					register(c81)	/* 1 vector */
+#define REG_cavPcaWeightsR				register(c82)	/* 22 vectors [c82,c103] */
+#define REG_cavPcaWeightsG				register(c104)	/* 22 vectors [c104,c125] */
+#define REG_cavPcaWeightsB				register(c126)	/* 22 vectors [c126,c147] */
+#define REG_cavPcaWeightsX				register(c148)	/* 8 vectors [c148,c155] */
+#define REG_cavPcaWeightsY				register(c156)	/* 8 vectors [c156,c163] */
+#define REG_cavPcaWeightsZ				register(c164)	/* 8 vectors [c164,c171] */
+#define REG_cavPcaWeightsNX				register(c172)	/* 8 vectors [c172,c179] */
+#define REG_cavPcaWeightsNY				register(c180)	/* 8 vectors [c180,c187] */
+#define REG_cavPcaWeightsNZ				register(c188)	/* 8 vectors [c188,c195] */
+#define REG_cavFeatureHeights			register(c196)	/* 1 vector */
+
+
+// The following parameters alias cavPcaWeightsG:
+#define REG_cfMipMapBias				register(c116)
+#define REG_cfBrightness				register(c117)
+#define REG_cfSurfaceReflection			register(c118)
+#define REG_cfRainIntensity				register(c119)
+#define REG_cfSpecularPower				register(c120)
+#define REG_cfMetallicScale				register(c121)
+#define REG_cfEnvmapPullAmount			register(c122)
+#define REG_cfEnvmapPower				register(c123)
+#define REG_PAD2						register(c125)
+
+// The following parameters alias cavPcaWeightsB:
+#define REG_cfCombinedBrightness		register(c126)
+#define REG_cvVisualEffectFadeColour	register(c127)	/* also aliases cfSkyAlphaTag */
+#define REG_cfSkyAlphaTag				register(c127)	/* also aliases cvVisualEffectFadeColour */
+#define REG_cfShadowVolumeOffset		register(c128)
+#define REG_cfRVMWorldBrightness		register(c129)
+#define REG_cfDesaturation				register(c130)
+#define REG_cfBloomScale				register(c131)
+#define REG_cfSplitScreenUVScale		register(c132)
+#define REG_cfColourCubeFilterBlend		register(c133)
+#define REG_cfTimeTicker				register(c134)
+#define REG_cfMiddleGray				register(c135)
+#define REG_cfBrightPassThreshold		register(c136)
+
+#define REG_cvScreenOffset				register(c137)
+#define REG_cvFog_Br_Plus_Bm			register(c138)
+#define REG_cvFog_One_Over_BrBm			register(c139)
+#define REG_cvFog_Const_1				register(c140)
+#define REG_cvFog_Const_2				register(c141)
+#define REG_cvFog_Const_3				register(c142)
+#define REG_cvAmbientColour				register(c143)
+#define REG_cvShadowParams0				register(c144)
+#define REG_cvShadowParams1				register(c145)
+
+
+// The following parameters alias cavPcaWeightsX:
+#define REG_cvDiffuseColour				register(c148)
+#define REG_cvSpecularColour			register(c149)
+// available: [c150,c155] (but would alias cavPcaWeightsX)
+
+// The following parameters alias cavPcaWeightsY:
+#define REG_cvShadowColour				register(c156)
+#define REG_cvTextureOffset				register(c161)
+#define REG_cvLocalCenter				register(c162)
+#define REG_cvTreeParams				register(c163)
+
+// The following parameters alias cavPcaWeightsZ:
+#define REG_cvBaseAlphaRef				register(c164)
+#define REG_cvCloudIntensity			register(c165)
+#define REG_cvLocalLightPos				register(c166)
+#define REG_cvPixelizationScale			register(c167)
+#define REG_cvGrassColour				register(c169)
+
+// The following parameters alias cavPcaWeightsNX:
+#define REG_cvDepthOfFieldParams		register(c172)	/* aliases cavFeatureHeights */
+#define REG_cvBlurParams				register(c173)
+// The following parameters alias cavPcaWeightsNX and cavPcaWeightsNY:
+#define REG_cavSampleOffsetWeights		register(c174)	/* 16 vectors [c174,c189] */
+
+#define REG_PAD0						register(c190)	/* free space!! */
+
+#define REG_cvFogValue					register(c206)
+#define REG_cvFogColour					register(c207)
+#define REG_cfSkyFogFalloff				register(c208)
+#define REG_cfLightMapVertColBlend		register(c209)
+
+#define REG_cvLightColour				register(c210)
+#define REG_cvLightPosition				register(c211)
+
+#define REG_cvLightDirection			register(c212)
+#define REG_cfShadowMapEnabled			register(c213)
+#define REG_cfVSMEnabled				register(c214)
+#define REG_cfReceiveShadow				register(c215)
+
+#define REG_cvVertexPowerBrightness		register(c216)
+
+#define REG_cfFogEnable					register(c240)
+
+
+
+// Light Material Registers - alias REG_cavLightDirections
+
+#define REG_cvDiffuseMin				register(c228)
+#define REG_cvDiffuseRange				register(c229)
+#define REG_cvEnvmapMin					register(c230)
+#define REG_cvEnvmapRange				register(c231)
+#define REG_cvSpecularMin				register(c232)
+#define REG_cvSpecularRange				register(c233)
+#define REG_cvSpecular1Min				register(c234)
+#define REG_cvSpecular1Range			register(c235)
+#define REG_cvPowers					register(c236)
+#define REG_cvClampAndScales			register(c237)
+#define REG_cvFlakes					register(c238)
+#define REG_cvVinylScales				register(c239)
+
+#define	REG_cvGradientParams            register(c240)
+#define	REG_cvGradientColour            register(c241)
+#define	REG_cvGradientColourE           register(c242)
+#define	REG_ScreenRez                  	register(c243)
+#define REG_cfScaleUVs					register(c244)
+
+// for the constants heavy shader instancing
+// 4 vectors, c4 to c7
+#define REG_cmInstanceVP					register(c4)
+#define REG_cvInstanceData					register(c8)
+#define REG_cvInstanceWorldSunPosition		register(c9)
+#define REG_cvInstanceWorldSunColour		register(c10)
+#define REG_cvInstanceWorldAmbientColour	register(c11)
+#define REG_cvInstancedFogColour			register(c12)
+#define REG_cvInstancedFogValue				register(c13)
+#define REG_cvInstanceArray					register(c14)
+
+
+// Aliased With Light Materials ...
+
+#define REG_cfDrawDepthOfField			register(c230)
+
+
+#define REG_ciVSMEnabled				register(c)
+#define REG_ciShadowMapPCFLevel			register(c)
+#define REG_ciShadowMapAlphaEnabled		register(c)
+#define REG_ciDoCarShadowMap			register(c)
+#define REG_cbIsParallexMapped			register(c)
+#define REG_cbDecompressPCA				register(c)
+
+#define REG_DIFFUSE_SAMPLER				register(c)
+#define REG_HEIGHTMAP_SAMPLER			register(c)
+#define REG_MISCMAP1_SAMPLER			register(c)
+#define REG_MISCMAP2_SAMPLER			register(c)
+#define REG_MISCMAP3_SAMPLER			register(c)
+#define REG_MISCMAP4_SAMPLER			register(c)
+#define REG_OPACITY_SAMPLER				register(c)
+#define REG_VOLUMEMAP_SAMPLER			register(c)
+#define REG_ENVIROMAP_SAMPLER			register(c)
+#define REG_NORMALMAP_SAMPLER			register(c)
+#define REG_SHADOWMAP_SAMPLER			register(c)
+#define REG_SHADOWVOLUME_COLOUR			register(c)
+#define REG_SPECULARMAP_SAMPLER			register(c)
+#define REG_PCA_COMPONENTS0_SAMPLER		register(c)
+#define REG_PCA_COMPONENTS1_SAMPLER		register(c)
+#define REG_PCA_COMPONENTS2_SAMPLER		register(c)
+#define REG_PCA_COMPONENTS3_SAMPLER		register(c)
+#define REG_HEADLIGHT_SAMPLER			register(c)
+#define REG_HEADLIGHT_CLIP_SAMPLER		register(c)
+#define REG_MIPMAP_GEN_SAMPLER			register(c)
+
+
+
+
+
+</file>
+ </files>
+ <tool name="FXLite">
+  <defines>
+   <define name="PLAT_XENON" value="" />
+  </defines>
+  <arguments>
+   <argument name="/Zi" value="false" />
+   <argument name="/Vd" value="false" />
+   <argument name="/Xu0_deprecated" value="false" />
+   <argument name="/Odu_deprecated" value="false" />
+   <argument name="/XOd_" value="false" />
+   <argument name="/XOu" value="false" />
+   <argument name="/Xmaxtempreg" value="0" />
+   <argument name="PsSampBase" value="0" />
+   <argument name="PsSampCount" value="0" />
+   <argument name="VsSampBase" value="0" />
+   <argument name="VsSampCount" value="0" />
+   <argument name="VsInstCount" value="0" />
+   <argument name="PsInstCount" value="0" />
+   <argument name="/Od" value="false" />
+   <argument name="/Zpr" value="false" />
+   <argument name="/Zpc" value="false" />
+   <argument name="/Gpp" value="false" />
+   <argument name="/Op" value="false" />
+   <argument name="/Gfa" value="false" />
+   <argument name="/Gfp" value="false" />
+   <argument name="/XZc:zeroInit" value="false" />
+   <argument name="/XVe" value="false" />
+   <argument name="/Xbe:3-" value="false" />
+   <argument name="/Xbe:1-" value="false" />
+   <argument name="/XQInomaskedexports" value="false" />
+   <argument name="/XOautoz" value="false" />
+   <argument name="/XfxAv" value="false" />
+   <argument name="/XfxAs" value="false" />
+   <argument name="/XfxPv" value="false" />
+  </arguments>
+ </tool>
+ <shaders>
+  <shader entrypoint="PS_Smoke" target="ps_3_0" FxlTechniqueName="smoke" FxlTechnique="0" FxlPassName="p0" FxlPass="0" ZPass="0" pdbHint="4e4a0000-32368302-1fd5a0d7">
+   <constanttable>
+    <constant register="s0">
+     <type name="DIFFUSE_SAMPLER" class="object" type="sampler2D" />
+    </constant>
+   </constanttable>
+   <sourcemap>
+    <statement pc="2" file="0" line="160" scope="-1" lastinstruction="0" />
+    <statement pc="3" file="0" line="163" scope="-1" lastinstruction="0" />
+    <statement pc="4" file="0" line="164" scope="-1" lastinstruction="0" />
+    <statement pc="0.1" file="0" line="164" scope="-1" lastinstruction="0" />
+    <statement pc="5" file="1" line="54" scope="-1" lastinstruction="0" />
+    <statement pc="6" file="1" line="54" scope="-1" lastinstruction="0" />
+    <statement pc="7" file="1" line="54" scope="-1" lastinstruction="0" />
+    <statement pc="8" file="0" line="164" scope="-1" lastinstruction="0" />
+    <statement pc="9" file="0" line="165" scope="-1" lastinstruction="0" />
+    <statement pc="10" file="0" line="160" scope="-1" lastinstruction="0" />
+    <statement pc="11" file="0" line="160" scope="-1" lastinstruction="0" />
+    <statement pc="12" file="0" line="160" scope="-1" lastinstruction="0" />
+    <statement pc="13" file="0" line="160" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="PS_Smoke" retID="70">
+     <parameter id="69" />
+    </function>
+    <function id="1" name="VS_Smoke" retID="53">
+     <parameter id="52" />
+    </function>
+    <function id="2" name="SmokeLightingModel" retID="49">
+     <parameter id="47" />
+     <parameter id="48" />
+    </function>
+    <function id="3" name="DecodeRGBE8" retID="24">
+     <parameter id="23" />
+    </function>
+    <function id="4" name="EncodeRGBE8" retID="19">
+     <parameter id="18" />
+    </function>
+    <function id="5" name="DeCompressColourSpace" retID="17">
+     <parameter id="16" />
+    </function>
+    <function id="6" name="CompressColourSpace" retID="15">
+     <parameter id="14" />
+    </function>
+    <function id="7" name="ScaleHeadLightIntensity" retID="12">
+     <parameter id="11" />
+    </function>
+    <function id="8" name="CalcVertexColour" retID="9">
+     <parameter id="8" />
+    </function>
+    <function id="9" name="screen_position" retID="7">
+     <parameter id="6" />
+    </function>
+    <function id="10" name="world_position" retID="4">
+     <parameter id="3" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+   </VfetchInfo>
+   <InterpolatorInfo>
+    <Interpolator Register="0" Semantic="0x50" Mask="xyz" />
+    <Interpolator Register="1" Semantic="0x51" Mask="xyzw" />
+    <Interpolator Register="2" Semantic="0xa0" Mask="xyzw" />
+   </InterpolatorInfo>
+   <LiteralFloats>
+    <Float Register="252" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="253" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="254" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="255" value0="1" value1="0.5" value2="0" value3="0" />
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+  <shader entrypoint="VS_Smoke" target="vs_3_0" FxlTechniqueName="smoke" FxlTechnique="0" FxlPassName="p0" FxlPass="0" ZPass="0" pdbHint="4e4a0001-32368302-1fd5a0d7">
+   <constanttable>
+    <constant register="c4" count="4">
+     <type name="cmInstanceVP" class="matrix_columns" type="float" rows="4" columns="4" />
+    </constant>
+    <constant register="c14" count="192">
+     <type name="cvInstanceArray" class="vector" type="float" columns="4" elements="192" />
+    </constant>
+    <constant register="c8">
+     <type name="cvInstanceData" class="vector" type="float" columns="4" />
+    </constant>
+    <constant register="c10">
+     <type name="cvInstanceWorldSunColour" class="vector" type="float" columns="3" />
+    </constant>
+    <constant register="c9">
+     <type name="cvInstanceWorldSunPosition" class="vector" type="float" columns="4" />
+    </constant>
+   </constanttable>
+   <sourcemap>
+    <statement pc="6" file="0" line="76" scope="-1" lastinstruction="0" />
+    <statement pc="7" file="0" line="76" scope="-1" lastinstruction="0" />
+    <statement pc="8" file="0" line="76" scope="-1" lastinstruction="0" />
+    <statement pc="0.1" file="0" line="76" scope="-1" lastinstruction="0" />
+    <statement pc="9" file="0" line="81" scope="-1" lastinstruction="0" />
+    <statement pc="10" file="0" line="81" scope="-1" lastinstruction="0" />
+    <statement pc="11" file="0" line="81" scope="-1" lastinstruction="0" />
+    <statement pc="12" file="0" line="91" scope="-1" lastinstruction="0" />
+    <statement pc="13" file="0" line="130" scope="-1" lastinstruction="0" />
+    <statement pc="14" file="0" line="116" scope="-1" lastinstruction="0" />
+    <statement pc="15" file="0" line="116" scope="-1" lastinstruction="0" />
+    <statement pc="16" file="0" line="116" scope="-1" lastinstruction="0" />
+    <statement pc="17" file="0" line="116" scope="-1" lastinstruction="0" />
+    <statement pc="18" file="0" line="128" scope="-1" lastinstruction="0" />
+    <statement pc="19" file="0" line="128" scope="-1" lastinstruction="0" />
+    <statement pc="20" file="0" line="128" scope="-1" lastinstruction="0" />
+    <statement pc="21" file="0" line="128" scope="-1" lastinstruction="0" />
+    <statement pc="22" file="0" line="128" scope="-1" lastinstruction="0" />
+    <statement pc="23" file="0" line="144" scope="-1" lastinstruction="0" />
+    <statement pc="2.1" file="0" line="144" scope="-1" lastinstruction="0" />
+    <statement pc="24" file="0" line="91" scope="-1" lastinstruction="0" />
+    <statement pc="25" file="0" line="120" scope="-1" lastinstruction="0" />
+    <statement pc="26" file="0" line="120" scope="-1" lastinstruction="0" />
+    <statement pc="27" file="0" line="120" scope="-1" lastinstruction="0" />
+    <statement pc="28" file="0" line="124" scope="-1" lastinstruction="0" />
+    <statement pc="29" file="0" line="130" scope="-1" lastinstruction="0" />
+    <statement pc="30" file="0" line="124" scope="-1" lastinstruction="0" />
+    <statement pc="31" file="0" line="137" scope="-1" lastinstruction="0" />
+    <statement pc="32" file="0" line="137" scope="-1" lastinstruction="0" />
+    <statement pc="33" file="0" line="137" scope="-1" lastinstruction="0" />
+    <statement pc="34" file="0" line="130" scope="-1" lastinstruction="0" />
+    <statement pc="35" file="0" line="142" scope="-1" lastinstruction="0" />
+    <statement pc="36" file="0" line="130" scope="-1" lastinstruction="0" />
+    <statement pc="37" file="0" line="144" scope="-1" lastinstruction="0" />
+    <statement pc="38" file="0" line="61" scope="-1" lastinstruction="0" />
+    <statement pc="39" file="0" line="61" scope="-1" lastinstruction="0" />
+    <statement pc="40" file="0" line="61" scope="-1" lastinstruction="0" />
+    <statement pc="41" file="0" line="67" scope="-1" lastinstruction="0" />
+    <statement pc="42" file="0" line="64" scope="-1" lastinstruction="0" />
+    <statement pc="43" file="0" line="138" scope="-1" lastinstruction="0" />
+    <statement pc="44" file="0" line="138" scope="-1" lastinstruction="0" />
+    <statement pc="45" file="0" line="69" scope="-1" lastinstruction="0" />
+    <statement pc="46" file="0" line="71" scope="-1" lastinstruction="0" />
+    <statement pc="47" file="0" line="71" scope="-1" lastinstruction="0" />
+    <statement pc="48" file="0" line="71" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="PS_Smoke" retID="70">
+     <parameter id="69" />
+    </function>
+    <function id="1" name="VS_Smoke" retID="53">
+     <parameter id="52" />
+    </function>
+    <function id="2" name="SmokeLightingModel" retID="49">
+     <parameter id="47" />
+     <parameter id="48" />
+    </function>
+    <function id="3" name="DecodeRGBE8" retID="24">
+     <parameter id="23" />
+    </function>
+    <function id="4" name="EncodeRGBE8" retID="19">
+     <parameter id="18" />
+    </function>
+    <function id="5" name="DeCompressColourSpace" retID="17">
+     <parameter id="16" />
+    </function>
+    <function id="6" name="CompressColourSpace" retID="15">
+     <parameter id="14" />
+    </function>
+    <function id="7" name="ScaleHeadLightIntensity" retID="12">
+     <parameter id="11" />
+    </function>
+    <function id="8" name="CalcVertexColour" retID="9">
+     <parameter id="8" />
+    </function>
+    <function id="9" name="screen_position" retID="7">
+     <parameter id="6" />
+    </function>
+    <function id="10" name="world_position" retID="4">
+     <parameter id="3" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+    <vfetch Address="6" Register="1" DestSwizzle="xyzw" Semantic="0x00" End="false" />
+    <vfetch Address="7" Register="3" DestSwizzle="xy__" Semantic="0x50" End="false" />
+    <vfetch Address="8" Register="0" DestSwizzle="_yzx" Semantic="0x30" End="true" />
+   </VfetchInfo>
+   <InterpolatorInfo>
+    <Interpolator Register="0" Semantic="0x50" Mask="xyz" />
+    <Interpolator Register="1" Semantic="0x51" Mask="xyzw" />
+    <Interpolator Register="2" Semantic="0xa0" Mask="xyzw" />
+   </InterpolatorInfo>
+   <LiteralFloats>
+    <Float Register="252" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="253" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="254" value0="0.2" value1="0.83333331" value2="4" value3="0" />
+    <Float Register="255" value0="0" value1="1" value2="0.30000001" value3="0.5" />
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+ </shaders>
+</shader-pdb>

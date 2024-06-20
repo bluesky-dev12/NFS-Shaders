@@ -1,0 +1,2096 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shader-pdb pdbHint="4e4a0000-4bdb16b9-dd76ae16" version="6995">
+ <files>
+  <file id="0" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Indep\Src\Render\effects\screeneffect.bbfx" time="01c8fd60-db5f3240">//--------------------------------------------------------------------------------------
+// Screen Effects
+//--------------------------------------------------------------------------------------
+
+#ifdef PLAT_PC
+#define DONTDODEPTH
+#define MOTIONBLUR_DONTPASSTHRUDEPTH
+#endif
+
+#include "screeneffect.h"
+
+#ifdef PLAT_XENON
+#include "screen_effect_xbox360.h"
+#endif
+
+#ifdef PLAT_PC
+#include "screen_effect_pc.h"
+#endif
+
+#ifdef PLAT_PS3
+#include "screen_effect_ps3.h"
+#endif
+
+/*
+Usage Information: This is used by the pipe, and by MAX
+STARTUSAGE: 
+materialDescription: This is a screen effect material.
+isTranslucent: false
+PLATFORM: XENON
+stream0: POSITION0, float4
+stream0: TEXCOORD0, float2
+PLATFORM: PS3
+stream0: POSITION0, float4
+stream0: TEXCOORD0, float2
+PLATFORM: PC
+stream0: POSITION0, float4
+stream0: TEXCOORD0, float2
+ENDUSAGE
+*/
+
+const string MaterialClass = "ScreenEffect";
+
+technique ScreenEffect
+&lt;
+	string viewtag = "ANY";
+	string lostag = "ANY";
+&gt;
+{
+    pass DownScaleForBloom
+	&lt; 
+		string depthstencil = "no_zwrite_test"; 
+		string blend = "screeneffect"; 
+		string rasterizer = "screeneffect"; 
+	&gt;
+    {   
+        VertexShader = compile vs_3_0 VS_Pass();
+        PixelShader  = compile ps_3_0 PS_DownScaleBloom();
+    }
+    
+    pass TwoPassBlur 
+	&lt; 
+		string depthstencil = "no_zwrite_test"; 
+		string blend = "screeneffect"; 
+		string rasterizer = "screeneffect"; 
+	&gt;
+    {   
+        VertexShader = compile vs_3_0 VS_Pass();
+        PixelShader  = compile ps_3_0 PS_Bloom();
+    }
+    
+    pass DownScale4x4
+	&lt; 
+		string depthstencil = "no_zwrite_test"; 
+		string blend = "screeneffect"; 
+		string rasterizer = "screeneffect"; 
+	&gt;
+    {   
+        VertexShader = compile vs_3_0 VS_Pass();
+        PixelShader  = compile ps_3_0 PS_DownScale4x4();
+    }
+    
+    pass GaussBlur5x5 
+	&lt; 
+		string depthstencil = "no_zwrite_test"; 
+		string blend = "screeneffect"; 
+		string rasterizer = "screeneffect"; 
+	&gt;
+    {   
+        VertexShader = compile vs_3_0 VS_Pass();
+        PixelShader  = compile ps_3_0 PS_GaussBlur5x5();
+    }
+    
+    pass DownScale2x2 
+	&lt; 
+		string depthstencil = "no_zwrite_test"; 
+		string blend = "screeneffect"; 
+		string rasterizer = "screeneffect"; 
+	&gt;
+    {   
+        VertexShader = compile vs_3_0 VS_Pass();
+        PixelShader  = compile ps_3_0 PS_DownScale2x2();
+    }  
+    
+    pass DownScale2x2ForRotationBlur 
+	&lt; 
+		string depthstencil = "no_zwrite_test"; 
+		string blend = "screeneffect"; 
+		string rasterizer = "screeneffect"; 
+	&gt;
+    {   
+        VertexShader = compile vs_3_0 VS_Pass();
+        PixelShader  = compile ps_3_0 PS_DownScale2x2Rotate();
+    }      
+    
+    
+    pass DownScale2x2ForCarBlur 
+	&lt; 
+		string depthstencil = "no_zwrite_test"; 
+		string blend = "screeneffect"; 
+		string rasterizer = "screeneffect"; 
+	&gt;
+    {   
+        VertexShader = compile vs_3_0 VS_Pass();
+        PixelShader  = compile ps_3_0 PS_DownScale2x2Car();
+    }
+    
+        pass DownScale2x2ForMotionBlur 
+	&lt; 
+		string depthstencil = "no_zwrite_test"; 
+		string blend = "screeneffect"; 
+		string rasterizer = "screeneffect"; 
+	&gt;
+    {   
+        VertexShader = compile vs_3_0 VS_Pass();
+        PixelShader  = compile ps_3_0 PS_DownScale2x2Motion();
+    }
+    
+    pass ConvertYUVToRGB 
+	&lt; 
+		string depthstencil = "no_zwrite_test"; 
+		string blend = "screeneffect"; 
+		string rasterizer = "screeneffect"; 
+	&gt;
+    {   
+        VertexShader = compile vs_3_0 VS_ConvertYUVtoRGB();
+        PixelShader  = compile ps_3_0 PS_ConvertYUVToRGB();
+    }
+    
+	pass composite_blur
+	&lt; 
+    #ifdef PLAT_PS3 
+		string depthstencil = "no_zwrite_test"; 
+	#else
+		string depthstencil = "depth_passthrough";
+	#endif
+		string blend = "screeneffect"; 
+		string rasterizer = "screeneffect"; 
+	&gt;
+	{
+		VertexShader = compile vs_3_0 VS_Pass();
+		PixelShader  = compile ps_3_0 PS_CompositeBlur();
+	}        
+	
+	pass composite_blur_r
+	&lt; 
+    #ifdef PLAT_PS3 
+		string depthstencil = "no_zwrite_test"; 
+	#else
+		string depthstencil = "depth_passthrough";
+	#endif
+		string blend = "screeneffect"; 
+		string rasterizer = "screeneffect"; 
+	&gt;
+	{
+		VertexShader = compile vs_3_0 VS_Pass();
+		PixelShader  = compile ps_3_0 PS_CompositeBlurR();
+	} 
+	
+	#ifndef PLAT_PC
+	pass DepthSprite
+	&lt; 
+		string depthstencil = "default"; 
+		string blend = "default"; 
+		string rasterizer = "screeneffect"; 
+	&gt;
+	{
+		VertexShader = compile vs_3_0 VS_Pass();
+		PixelShader  = compile ps_3_0 PS_DepthSprite();
+	}  
+	#endif
+	
+	pass PrepSmokeBuffers
+	&lt; 
+		string depthstencil = "default"; 
+		string blend = "smokeblend"; 
+		string rasterizer = "screeneffect"; 
+	&gt;
+	{
+		VertexShader = compile vs_3_0 VS_Pass();
+		PixelShader  = compile ps_3_0 PS_PrepSmokeBuffers();
+	}  
+	
+	pass CompositeSmoke
+	&lt; 
+		string depthstencil = "always_pass"; 
+		string blend = "screeneffect"; 
+		string rasterizer = "screeneffect"; 
+	&gt;
+	{
+		VertexShader = compile vs_3_0 VS_Pass();
+		PixelShader  = compile ps_3_0 PS_CompositeSmoke();
+	}  
+	
+	pass FacePixelate
+	&lt;
+		string depthstencil = "always_pass"; 
+		string blend = "screeneffect"; 
+		string rasterizer = "screeneffect"; 
+	&gt;
+	{
+		VertexShader = compile vs_3_0 VS_Pass();
+		PixelShader  = compile ps_3_0 PS_FacePixelate();	
+	}
+	
+	#ifdef PLAT_PS3
+	pass Copy 
+	&lt; 
+		string depthstencil = "no_zwrite_test"; 
+		string blend = "screeneffect"; 
+		string rasterizer = "screeneffect"; 
+	&gt;
+    {   
+        VertexShader = compile vs_3_0 VS_Pass();
+        PixelShader  = compile ps_3_0 PS_Copy();
+    }
+    #endif
+}
+
+
+</file>
+  <file id="1" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Indep\Src\Render\effects\common\screeneffect.h" time="01c8fd60-db580b32">#ifndef	SCREENEFFECT_H
+#define SCREENEFFECT_H
+
+//--------------------------------------------------------------------------------------
+// INCLUDES
+//--------------------------------------------------------------------------------------
+
+#include "global.h"
+#include "screeneffectglobals.h"
+#include "sunhazefog.h"
+#include "depth.h"
+
+shared float2	cvPixelizationScale : REG_cvPixelizationScale; //PIXELIZATION_SCALE;
+
+#ifdef PLAT_XENON
+float2 cvSmokeParams : REG_cvSmokeParams;
+#endif
+
+//--------------------------------------------------------------------------------------
+// VERTEX SHADERS
+//--------------------------------------------------------------------------------------
+
+PS_INPUT VS_Pass( VS_INPUT IN )
+{
+    PS_INPUT OUT;
+    OUT.Position = IN.Position;
+    OUT.TexCoord = IN.TexCoord;
+
+    return OUT;
+}
+
+PS_INPUT VS_ConvertYUVtoRGB( VS_INPUT IN )
+{
+    PS_INPUT OUT;
+    OUT.Position = IN.Position;
+    OUT.TexCoord = float2(IN.TexCoord.x, 1.0f - IN.TexCoord.y);
+
+    return OUT;
+}
+
+//--------------------------------------------------------------------------------------
+// PIXEL SHADERS
+//--------------------------------------------------------------------------------------
+
+/*
+So, I get the intent of the original "PS_DownScaleBloom" function. We want to downsample
+an image without missing ANY pixels. For bloom, this is great, b/c is prevents sub-pixel 
+strobing problems. But, we don't seem to have any sub-pixel-strobing-problems. I drove all
+around the world with Rose and DaveT, switching between these two functions (hw bilinear
+downsample and multi-tap-downsample). They were not able to find any significant artifact
+when using the bilinear sample. (I didn't see any either). So, this is also a big
+optimization. That multi-tap filter was over ~3ms for a 1280 frame. (Not acceptable!)
+
+We have enabled bilinear sampling by defining 'BLOOM_MINFILTER_BILINEAR' below, and plan on 
+shipping this way. Please direct any questions to myself, Dave Taylor, or Hafid Roserie.
+
+Jim Hejl
+7/12/2008
+*/
+#define BLOOM_MINFILTER_BILINEAR
+
+#if defined(BLOOM_MINFILTER_BILINEAR)
+float4 PS_DownScaleBloom( const PS_INPUT IN ) : COLOR0 
+{
+    // bilinear sample
+    return tex2D(TEXTURE1_SAMPLER,IN.TexCoord.xy);
+}
+#else
+float4 PS_DownScaleBloom( const PS_INPUT IN ) : COLOR0 
+{
+    float2 screenPosition = IN.TexCoord;
+
+    float3 sample = 0;
+	// Unrolling this is a big performance win.  MKaech
+    //for( int i = 0; i &lt; 13; i++ )
+    //{
+    //    sample += cavSampleOffsetWeights[i].w * tex2D( TEXTURE1_SAMPLER, screenPosition + cavSampleOffsetWeights[i].xy ).xyz;
+    //}
+
+	sample += cavSampleOffsetWeights[0].w * tex2D( TEXTURE1_SAMPLER, screenPosition + cavSampleOffsetWeights[0].xy ).xyz;
+	sample += cavSampleOffsetWeights[1].w * tex2D( TEXTURE1_SAMPLER, screenPosition + cavSampleOffsetWeights[1].xy ).xyz;
+	sample += cavSampleOffsetWeights[2].w * tex2D( TEXTURE1_SAMPLER, screenPosition + cavSampleOffsetWeights[2].xy ).xyz;
+	sample += cavSampleOffsetWeights[3].w * tex2D( TEXTURE1_SAMPLER, screenPosition + cavSampleOffsetWeights[3].xy ).xyz;
+	sample += cavSampleOffsetWeights[4].w * tex2D( TEXTURE1_SAMPLER, screenPosition + cavSampleOffsetWeights[4].xy ).xyz;
+	sample += cavSampleOffsetWeights[5].w * tex2D( TEXTURE1_SAMPLER, screenPosition + cavSampleOffsetWeights[5].xy ).xyz;
+	sample += cavSampleOffsetWeights[6].w * tex2D( TEXTURE1_SAMPLER, screenPosition + cavSampleOffsetWeights[6].xy ).xyz;
+	sample += cavSampleOffsetWeights[7].w * tex2D( TEXTURE1_SAMPLER, screenPosition + cavSampleOffsetWeights[7].xy ).xyz;
+	sample += cavSampleOffsetWeights[8].w * tex2D( TEXTURE1_SAMPLER, screenPosition + cavSampleOffsetWeights[8].xy ).xyz;
+	sample += cavSampleOffsetWeights[9].w * tex2D( TEXTURE1_SAMPLER, screenPosition + cavSampleOffsetWeights[9].xy ).xyz;
+	sample += cavSampleOffsetWeights[10].w * tex2D( TEXTURE1_SAMPLER, screenPosition + cavSampleOffsetWeights[10].xy ).xyz;
+	sample += cavSampleOffsetWeights[11].w * tex2D( TEXTURE1_SAMPLER, screenPosition + cavSampleOffsetWeights[11].xy ).xyz;
+	sample += cavSampleOffsetWeights[12].w * tex2D( TEXTURE1_SAMPLER, screenPosition + cavSampleOffsetWeights[12].xy ).xyz;
+
+    return float4(sample.rgb,1);
+}
+#endif
+
+
+//===========================================================================
+
+float4 PS_Bloom( const PS_INPUT IN ) : COLOR0
+{
+    float4 sample = 0;
+
+// Unrolling this is a big performance win.  MKaech
+//    for( int i=0; i	&lt; 15; i++ )
+//    {
+//        // derektodo: All platforms need to support variable blur
+//#if defined(PLAT_XENON) || defined( PLAT_PS3 )
+//        sample += cavSampleOffsetWeights[i].w * tex2Dlod( TEXTURE1_SAMPLER, float4(IN.TexCoord.xy + cavSampleOffsetWeights[i].xy, 0, cvBlurParams.x) );
+//#else
+//        sample += cavSampleOffsetWeights[i].w * tex2D( TEXTURE1_SAMPLER, IN.TexCoord.xy + cavSampleOffsetWeights[i].xy );
+//#endif
+//    }
+
+#if defined(PLAT_XENON) || defined( PLAT_PS3 )
+	sample += cavSampleOffsetWeights[0].w * tex2Dlod( TEXTURE1_SAMPLER, float4(IN.TexCoord.xy + cavSampleOffsetWeights[0].xy, 0, cvBlurParams.x) );
+	sample += cavSampleOffsetWeights[1].w * tex2Dlod( TEXTURE1_SAMPLER, float4(IN.TexCoord.xy + cavSampleOffsetWeights[1].xy, 0, cvBlurParams.x) );
+	sample += cavSampleOffsetWeights[2].w * tex2Dlod( TEXTURE1_SAMPLER, float4(IN.TexCoord.xy + cavSampleOffsetWeights[2].xy, 0, cvBlurParams.x) );
+	sample += cavSampleOffsetWeights[3].w * tex2Dlod( TEXTURE1_SAMPLER, float4(IN.TexCoord.xy + cavSampleOffsetWeights[3].xy, 0, cvBlurParams.x) );
+	sample += cavSampleOffsetWeights[4].w * tex2Dlod( TEXTURE1_SAMPLER, float4(IN.TexCoord.xy + cavSampleOffsetWeights[4].xy, 0, cvBlurParams.x) );
+	sample += cavSampleOffsetWeights[5].w * tex2Dlod( TEXTURE1_SAMPLER, float4(IN.TexCoord.xy + cavSampleOffsetWeights[5].xy, 0, cvBlurParams.x) );
+	sample += cavSampleOffsetWeights[6].w * tex2Dlod( TEXTURE1_SAMPLER, float4(IN.TexCoord.xy + cavSampleOffsetWeights[6].xy, 0, cvBlurParams.x) );
+	sample += cavSampleOffsetWeights[7].w * tex2Dlod( TEXTURE1_SAMPLER, float4(IN.TexCoord.xy + cavSampleOffsetWeights[7].xy, 0, cvBlurParams.x) );
+	sample += cavSampleOffsetWeights[8].w * tex2Dlod( TEXTURE1_SAMPLER, float4(IN.TexCoord.xy + cavSampleOffsetWeights[8].xy, 0, cvBlurParams.x) );
+	sample += cavSampleOffsetWeights[9].w * tex2Dlod( TEXTURE1_SAMPLER, float4(IN.TexCoord.xy + cavSampleOffsetWeights[9].xy, 0, cvBlurParams.x) );
+	sample += cavSampleOffsetWeights[10].w * tex2Dlod( TEXTURE1_SAMPLER, float4(IN.TexCoord.xy + cavSampleOffsetWeights[10].xy, 0, cvBlurParams.x) );
+	sample += cavSampleOffsetWeights[11].w * tex2Dlod( TEXTURE1_SAMPLER, float4(IN.TexCoord.xy + cavSampleOffsetWeights[11].xy, 0, cvBlurParams.x) );
+	sample += cavSampleOffsetWeights[12].w * tex2Dlod( TEXTURE1_SAMPLER, float4(IN.TexCoord.xy + cavSampleOffsetWeights[12].xy, 0, cvBlurParams.x) );
+	sample += cavSampleOffsetWeights[13].w * tex2Dlod( TEXTURE1_SAMPLER, float4(IN.TexCoord.xy + cavSampleOffsetWeights[13].xy, 0, cvBlurParams.x) );
+	sample += cavSampleOffsetWeights[14].w * tex2Dlod( TEXTURE1_SAMPLER, float4(IN.TexCoord.xy + cavSampleOffsetWeights[14].xy, 0, cvBlurParams.x) );
+#else
+	sample += cavSampleOffsetWeights[0].w * tex2D( TEXTURE1_SAMPLER, IN.TexCoord.xy + cavSampleOffsetWeights[0].xy);
+	sample += cavSampleOffsetWeights[1].w * tex2D( TEXTURE1_SAMPLER, IN.TexCoord.xy + cavSampleOffsetWeights[1].xy);
+	sample += cavSampleOffsetWeights[2].w * tex2D( TEXTURE1_SAMPLER, IN.TexCoord.xy + cavSampleOffsetWeights[2].xy);
+	sample += cavSampleOffsetWeights[3].w * tex2D( TEXTURE1_SAMPLER, IN.TexCoord.xy + cavSampleOffsetWeights[3].xy);
+	sample += cavSampleOffsetWeights[4].w * tex2D( TEXTURE1_SAMPLER, IN.TexCoord.xy + cavSampleOffsetWeights[4].xy);
+	sample += cavSampleOffsetWeights[5].w * tex2D( TEXTURE1_SAMPLER, IN.TexCoord.xy + cavSampleOffsetWeights[5].xy);
+	sample += cavSampleOffsetWeights[6].w * tex2D( TEXTURE1_SAMPLER, IN.TexCoord.xy + cavSampleOffsetWeights[6].xy);
+	sample += cavSampleOffsetWeights[7].w * tex2D( TEXTURE1_SAMPLER, IN.TexCoord.xy + cavSampleOffsetWeights[7].xy);
+	sample += cavSampleOffsetWeights[8].w * tex2D( TEXTURE1_SAMPLER, IN.TexCoord.xy + cavSampleOffsetWeights[8].xy);
+	sample += cavSampleOffsetWeights[9].w * tex2D( TEXTURE1_SAMPLER, IN.TexCoord.xy + cavSampleOffsetWeights[9].xy);
+	sample += cavSampleOffsetWeights[10].w * tex2D( TEXTURE1_SAMPLER, IN.TexCoord.xy + cavSampleOffsetWeights[10].xy);
+	sample += cavSampleOffsetWeights[11].w * tex2D( TEXTURE1_SAMPLER, IN.TexCoord.xy + cavSampleOffsetWeights[11].xy);
+	sample += cavSampleOffsetWeights[12].w * tex2D( TEXTURE1_SAMPLER, IN.TexCoord.xy + cavSampleOffsetWeights[12].xy);
+	sample += cavSampleOffsetWeights[13].w * tex2D( TEXTURE1_SAMPLER, IN.TexCoord.xy + cavSampleOffsetWeights[13].xy);
+	sample += cavSampleOffsetWeights[14].w * tex2D( TEXTURE1_SAMPLER, IN.TexCoord.xy + cavSampleOffsetWeights[14].xy);
+#endif
+
+    return sample;
+}
+
+float4 PS_FacePixelate( const PS_INPUT IN ) : COLOR0
+{
+    float2	vOffset = round( IN.TexCoord * cvPixelizationScale ) / cvPixelizationScale;
+    float4 result = tex2D( TEXTURE1_SAMPLER, vOffset );
+
+    return result;
+}
+
+//===========================================================================
+
+float4 PS_DownScale4x4(	const PS_INPUT IN ) : COLOR
+{
+    float2 screenPosition = IN.TexCoord;
+
+    float4 result = 0;
+
+	// Unrolling these is a big performance win.  MKaech
+    //for( int i = 0; i &lt; 16; i++ )
+    //{
+    //    result += GetBase( screenPosition + cavSampleOffsetWeights[i].xy );
+    //}
+	
+	result += GetBase( screenPosition + cavSampleOffsetWeights[0].xy );
+	result += GetBase( screenPosition + cavSampleOffsetWeights[1].xy );
+	result += GetBase( screenPosition + cavSampleOffsetWeights[2].xy );
+	result += GetBase( screenPosition + cavSampleOffsetWeights[3].xy );
+	result += GetBase( screenPosition + cavSampleOffsetWeights[4].xy );
+	result += GetBase( screenPosition + cavSampleOffsetWeights[5].xy );
+	result += GetBase( screenPosition + cavSampleOffsetWeights[6].xy );
+	result += GetBase( screenPosition + cavSampleOffsetWeights[7].xy );
+	result += GetBase( screenPosition + cavSampleOffsetWeights[8].xy );
+	result += GetBase( screenPosition + cavSampleOffsetWeights[9].xy );
+	result += GetBase( screenPosition + cavSampleOffsetWeights[10].xy );
+	result += GetBase( screenPosition + cavSampleOffsetWeights[11].xy );
+	result += GetBase( screenPosition + cavSampleOffsetWeights[12].xy );
+	result += GetBase( screenPosition + cavSampleOffsetWeights[13].xy );
+	result += GetBase( screenPosition + cavSampleOffsetWeights[14].xy );
+	result += GetBase( screenPosition + cavSampleOffsetWeights[15].xy );
+
+    result /= 16;
+
+    return result;
+}
+
+//===========================================================================
+
+float4 PS_GaussBlur5x5(	const PS_INPUT IN ) : COLOR
+{
+    float4 sample = 0.0f;
+
+	// Unrolling these is a big performance win.  MKaech
+    //for( int i = 0; i &lt; 13; i++ )
+    //{
+    //    sample += cavSampleOffsetWeights[i].w * GetBase( IN.TexCoord.xy + cavSampleOffsetWeights[i].xy );
+    //}
+
+	sample += cavSampleOffsetWeights[0].w * GetBase( IN.TexCoord.xy + cavSampleOffsetWeights[0].xy );
+	sample += cavSampleOffsetWeights[1].w * GetBase( IN.TexCoord.xy + cavSampleOffsetWeights[1].xy );
+	sample += cavSampleOffsetWeights[2].w * GetBase( IN.TexCoord.xy + cavSampleOffsetWeights[2].xy );
+	sample += cavSampleOffsetWeights[3].w * GetBase( IN.TexCoord.xy + cavSampleOffsetWeights[3].xy );
+	sample += cavSampleOffsetWeights[4].w * GetBase( IN.TexCoord.xy + cavSampleOffsetWeights[4].xy );
+	sample += cavSampleOffsetWeights[5].w * GetBase( IN.TexCoord.xy + cavSampleOffsetWeights[5].xy );
+	sample += cavSampleOffsetWeights[6].w * GetBase( IN.TexCoord.xy + cavSampleOffsetWeights[6].xy );
+	sample += cavSampleOffsetWeights[7].w * GetBase( IN.TexCoord.xy + cavSampleOffsetWeights[7].xy );
+	sample += cavSampleOffsetWeights[8].w * GetBase( IN.TexCoord.xy + cavSampleOffsetWeights[8].xy );
+	sample += cavSampleOffsetWeights[9].w * GetBase( IN.TexCoord.xy + cavSampleOffsetWeights[9].xy );
+	sample += cavSampleOffsetWeights[10].w * GetBase( IN.TexCoord.xy + cavSampleOffsetWeights[10].xy );
+	sample += cavSampleOffsetWeights[11].w * GetBase( IN.TexCoord.xy + cavSampleOffsetWeights[11].xy );
+	sample += cavSampleOffsetWeights[12].w * GetBase( IN.TexCoord.xy + cavSampleOffsetWeights[12].xy );
+
+    return sample;
+}
+
+//===========================================================================
+
+float4 PS_DownScale2x2(	const PS_INPUT IN ) : COLOR
+{
+    float2 screenPosition = IN.TexCoord;
+
+    float4 sample =	0.0f;
+
+	// Unrolling these is a big performance win.  MKaech
+    //for( int i = 0; i &lt; 4; i++ )
+    //{
+    //    sample += tex2D( TEXTURE1_SAMPLER, screenPosition + cavSampleOffsetWeights[i].xy );
+    //}
+
+	sample += tex2D( TEXTURE1_SAMPLER, screenPosition + cavSampleOffsetWeights[0].xy );
+	sample += tex2D( TEXTURE1_SAMPLER, screenPosition + cavSampleOffsetWeights[1].xy );
+	sample += tex2D( TEXTURE1_SAMPLER, screenPosition + cavSampleOffsetWeights[2].xy );
+	sample += tex2D( TEXTURE1_SAMPLER, screenPosition + cavSampleOffsetWeights[3].xy );
+
+    return sample /	4;
+}
+
+//===========================================================================
+
+float4 PS_ConvertYUVToRGB( const PS_INPUT IN ) : COLOR
+{
+    float3 col;
+    col.r = tex2D( TEXTURE1_SAMPLER, IN.TexCoord ).r;
+    col.g = tex2D( TEXTURE2_SAMPLER, IN.TexCoord ).r;
+    col.b = tex2D( TEXTURE3_SAMPLER, IN.TexCoord ).r;
+    col += gYUVBias;
+
+    float4 res;
+    res.rgb = mul( col, gYUV2RGBTransform );
+    res.a = 1.0;
+
+    return res;
+}
+
+//===========================================================================
+
+DepthSpriteOut PS_CompositeBlurImplementation( const PS_INPUT IN, uniform bool doRadialBlur)
+{
+    DepthSpriteOut OUT;
+
+    float4 screen = tex2D( DIFFUSE_SAMPLER, IN.TexCoord.xy );
+    float4 blur = tex2D( MOTIONBLUR_SAMPLER, IN.TexCoord.xy );
+    
+	// All CPU side scaling factors
+    float senseOfSpeedScale = cvBlurParams.x; // 0 traveling slow, 1 traveling fast
+
+	// Car scaling factor
+	float carBlurAmount = cvBlurParams.y;
+	float carBlurFactor = saturate((1.0f - screen.w) + carBlurAmount);
+
+	// Combine all the scaling factors
+	float blurFactor = blur.w; // Depth
+	blurFactor *= senseOfSpeedScale;
+	blurFactor *= carBlurFactor;
+
+	if(doRadialBlur)
+	{
+		// Screen position based scaling factor (no effect in the bottom center of the screen, lots at the edge)
+		float2 radialVector = IN.TexCoord.xy;
+		radialVector.y -= 0.25; // Move the 0 effect point down along Y. NOTE:  might need to be an addition on PS3
+		radialVector = (radialVector * 2.0f) - float2(1.0f, 1.0f); // Y-shifted screen space
+		radialVector.x *= 1.5; // Pull the effect in horizontally so that sides get more blur
+		float radialFactor = length(radialVector);
+		radialFactor *= radialFactor;
+		blurFactor *= radialFactor;
+	}
+    
+    OUT.Colour.xyz = lerp(screen.xyz, blur.xyz, saturate(blurFactor));
+    OUT.Colour.w = screen.w;
+
+//  This code outputs shades of red to show you how strongly the effect is applied in-game
+// 	if(blurFactor &lt; 0.2f)
+// 	{
+// 		OUT.Colour.xyz = screen.xyz;
+// 	}
+// 	else if(blurFactor &lt; 0.5f)
+// 	{
+// 		OUT.Colour.xyz = float3(1.0f, 0.666f, 0.666f);
+// 	}
+// 	else if(blurFactor &lt; 1.0f)
+// 	{
+// 		OUT.Colour.xyz = float3(1.0f, 0.333f, 0.333f);
+// 	}
+// 	else
+// 	{
+// 		OUT.Colour.xyz = float3(1.0f, 0.0f, 0.0f);
+// 	}
+
+#ifdef PLAT_PC
+#ifndef MOTIONBLUR_DONTPASSTHRUDEPTH
+    OUT.Depth = tex2D(DEPTHBUFFER_SAMPLER,IN.TexCoord.xy);
+#endif
+#endif
+
+#ifdef PLAT_XENON
+    OUT.Depth = tex2D(DEPTHBUFFER_SAMPLER,IN.TexCoord.xy).x;
+#endif
+
+	//OUT.Colour = blur;
+
+    return OUT;
+}
+
+DepthSpriteOut PS_CompositeBlurR( const PS_INPUT IN )
+{
+	return PS_CompositeBlurImplementation( IN, true);
+}
+
+DepthSpriteOut PS_CompositeBlur( const PS_INPUT IN )
+{
+	return PS_CompositeBlurImplementation( IN, false);
+}
+
+//===========================================================================
+
+#ifndef PLAT_PC
+DepthSpriteOut PS_DepthSprite( const PS_INPUT IN )
+{
+    DepthSpriteOut OUT;
+
+    float2 screenPosition = IN.TexCoord;
+
+    OUT.Colour = float4(tex2D( DIFFUSE_SAMPLER, screenPosition ).xyz, 0 );
+    OUT.Depth  = tex2D(DEPTHBUFFER_SAMPLER,screenPosition.xy).x;
+
+    return OUT;
+}
+#endif
+
+//===========================================================================
+
+PrepBuffersOut PS_PrepSmokeBuffers( const PS_INPUT IN )
+{
+    PrepBuffersOut OUT;
+
+    OUT.Colour0 = float4( tex2D( DIFFUSE_SAMPLER, IN.TexCoord).xyz, 0 );
+
+    //OUT.colour1 = float4(tex2D( PERLINNOISE_SAMPLER, texCoord).xyz, 0);
+#ifdef PLAT_PS3
+    float3 depthColor  =  tex2D( DEPTHBUFFER_SAMPLER, IN.TexCoord).arg;
+    // multiply with factor
+    depthColor *= float3( 65536*255.0/16777215.0, 256*255.0/16777215.0, 255.0/16777215.0 );
+    // round out the fluctuating precision
+    depthColor += float3( 1.0/4096.0, 1.0/1048576.0, 0 );
+    // shift values right
+    depthColor += float3( 32768, 128, 0 );
+    // shift values back left
+    depthColor -= float3( 32768, 128, 0 );
+    // dot to retrive final depth
+    OUT.Depth = dot( depthColor, float3(1,1,1) );
+#endif
+#ifdef 	PLAT_XENON
+    OUT.Colour1 = float4(0.5,0.5,0.5,1);	// default middle grey implies no perlin offset
+    OUT.Depth = tex2D(DEPTHBUFFER_SAMPLER,IN.TexCoord.xy).x;
+#endif
+#ifdef PLAT_PC
+	// just a temporary test until D. Wall gets a good depth buffer
+	// if we dont have that, just always pass so we know the smoke is working
+    OUT.Depth = 1.0;//tex2D( DEPTHBUFFER_SAMPLER, IN.TexCoord).x;
+#endif
+
+    return OUT;
+}
+
+//===========================================================================
+
+CompositeOut PS_CompositeSmoke( const PS_INPUT IN )
+{
+    CompositeOut OUT;
+#ifdef PLAT_PS3
+    float3 depthColor  =  tex2D( DEPTHBUFFER_SAMPLER, IN.TexCoord).arg;
+    // multiply with factor
+    depthColor *= float3( 65536*255.0/16777215.0, 256*255.0/16777215.0, 255.0/16777215.0 );
+    // round out the fluctuating precision
+    depthColor += float3( 1.0/4096.0, 1.0/1048576.0, 0 );
+    // shift values right
+    depthColor += float3( 32768, 128, 0 );
+    // shift values back left
+    depthColor -= float3( 32768, 128, 0 );
+    // dot to retrive final depth
+    float depth = dot( depthColor, float3(1,1,1) );
+#elif defined(PLAT_XENON)
+    float depth = tex2D(DEPTHBUFFER_SAMPLER,IN.TexCoord.xy).x;
+#elif defined(PLAT_PC)
+	// no depth buffer on pc yet, so just use max depth (Dave Wall on the case)
+	float depth = 1.0f;
+#endif
+
+	OUT.Depth = depth;
+
+#if defined (DEPTH_HIZ)
+    depth = 1-depth;
+#endif
+
+    float4 original_backbuffer = tex2D( DIFFUSE_SAMPLER,  IN.TexCoord);
+
+    ///////////////
+
+    float4 foggedColour = ComputeFogging(original_backbuffer, IN.TexCoord, depth);
+
+    original_backbuffer = foggedColour;
+
+    //
+    // Sample into the blurred buffer using a perlin noise offset
+    //
+#ifdef PLAT_XENON
+    float2 perlin_noise	= tex2D( PERLINNOISE_SAMPLER, IN.TexCoord).xy * 2 - 1;
+    float4 solid_smoke	= tex2D( TEXTURE1_SAMPLER, IN.TexCoord + (perlin_noise * cvSmokeParams));
+#else
+    float4 solid_smoke	= tex2D( TEXTURE1_SAMPLER, IN.TexCoord);
+#endif
+
+    //30
+    OUT.Colour.xyz = lerp(original_backbuffer.xyz, solid_smoke.xyz, saturate(solid_smoke.w*1.1));
+
+    // be careful with the alpha channel. it is used as a mask, cars write 1, everything else writes 0
+    // if smoke is partially obscuring the car, we need other values 0---&gt;1 as the smoke completely obscures the car to not obscuring the car at all
+    OUT.Colour.w = lerp(original_backbuffer.w, 0, solid_smoke.w);
+
+    return OUT;
+}
+
+#endif
+</file>
+  <file id="2" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Xenon\Src\Render\effects\global.h" time="01c8fd61-408f5ffa">#ifndef GLOBAL_H
+#define GLOBAL_H
+
+#include "registermap.h"   
+#include "global_common.h"
+
+//#define ENABLE_SCREENSHOTS
+
+// Defined out for the Xbox360 - only needed on the PC
+#define DECLARE_TEXTURE(texture)	
+#define ASSIGN_TEXTURE(texture)	
+#define DECLARE_MINFILTER(default_filter)			 MINFILTER = default_filter;
+#define DECLARE_MAGFILTER(default_filter)			 MAGFILTER = default_filter;
+#define DECLARE_MIPFILTER(default_filter)			 MIPFILTER = default_filter;
+
+#ifndef SHADERMODEL_3_0
+    #define SHADERMODEL_3_0
+#endif
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+//--------------------------------------------------------------------------------------
+// Global Parameters - platform specific.
+//--------------------------------------------------------------------------------------
+float4		cvScreenOffset			: REG_cvScreenOffset;
+float4		cvVertexPowerBrightness : REG_cvVertexPowerBrightness;
+
+#include "reflection.h"
+
+float4 world_cartesian_position( float4 screen_pos )
+{
+ 	float4 p = mul(screen_pos, cmWorldViewProj);  
+
+#if defined(PLAT_XENON) &amp;&amp; defined(ENABLE_SCREENSHOTS)
+	p.xy += (cvScreenOffset.xy * p.w);
+#endif
+
+    return p;
+}
+
+float4 world_position(COMPILETIME_BOOL enableParaboloidBasis, float4 modelspace_position)
+{
+	if (enableParaboloidBasis)
+	{
+		return world_paraboloid_position(modelspace_position);
+	}
+	else
+	{
+		return world_cartesian_position(modelspace_position);
+	}
+}
+
+float4 world_position(float4 modelspace_position, COMPILETIME_BOOL enableParaboloidBasis, COMPILETIME_BOOL instanceRender)
+{
+	if(instanceRender)
+	{
+		// Want to do a compile time assert here as Instance rendering isn't supported on Xenon at the moment.
+	}
+
+	if (enableParaboloidBasis)
+	{
+		return world_paraboloid_position(modelspace_position);
+	}
+	else
+	{
+		return world_cartesian_position(modelspace_position);
+	}
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+// HDR Colour Space compression
+/////////////////////////////////////////////////////////////////////////////////////////
+
+/* 
+This function maps input 'c' to a curve. 
+
+It is a really important curve!
+It provides the following transformation on the input color:
+
+1. Compresses the dynamic range from 0-2 to 0-1 (which is expressable in 8 bits)
+2. Adds a 'filmic' shoulder to the high end that prevents the color from "slamming
+into the ceiling", which is a class digital problem with a limited number of bits.
+
+Jim Hejl
+07/12/2008
+*/
+float3 CompressColourSpace(float3 c)
+{
+    // filmic response, without implicit gamma
+    // GammaCompress() is active, and does a sqrt() after this response curve
+    return (1-(pow(1-(c*.5),2)));
+    /*
+    float3 c0, c1;
+    c0 = max(c*.75,1);
+    c1 = min(1,c*.75);
+    c1 = 1-pow(c1,2);
+
+    return (c0-c1)*1.3333; 
+    */
+
+    //return (c*.5);//(c*0.5);//saturate((c/(c+0.1812))*1.0906); 
+} 
+
+float3 DeCompressColourSpace(float3 c)
+{
+    // no curve removal at this time
+    return (c);
+    
+    //(c*2);//(c/((1-c)+0.1))*0.2;
+}
+
+half2 DeCompressTextCoords(half2 textCoords)
+{
+	return textCoords;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+// RGBE8 Encoding/Decoding
+// The RGBE8 format stores a mantissa per color channel and a shared exponent 
+// stored in alpha. Since the exponent is shared, it's computed based on the
+// highest intensity color component. The resulting color is RGB * 2^Alpha,
+// which scales the data across a logarithmic scale.
+/////////////////////////////////////////////////////////////////////////////////////////
+
+float4 EncodeRGBE8( in float3 rgb )	  
+{
+	float4 vEncoded;
+
+    // Determine the largest color component
+	float maxComponent = max( max(rgb.r, rgb.g), rgb.b );
+	
+	// Round to the nearest integer exponent
+	float fExp = ceil( log2(maxComponent) );
+
+    // Divide the components by the shared exponent
+	vEncoded.rgb = rgb / exp2(fExp);
+	
+	// Store the shared exponent in the alpha channel
+	vEncoded.a = (fExp + 128) / 255;
+
+	return vEncoded;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+float3 DecodeRGBE8( in float4 rgbe )
+{
+	float3 vDecoded;
+
+    // Retrieve the shared exponent
+	float fExp = rgbe.a * 255 - 128;
+	
+	// Multiply through the color components
+	vDecoded = rgbe.rgb * exp2(fExp);
+	
+	return vDecoded;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+#endif
+</file>
+  <file id="3" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Xenon\Src\Render\effects\registermap.h" time="01c8f9c5-4d521c5e">
+// ------------------------------------------------------------------------------------------------------------------------------------------
+
+#define CONSTANT_RESERVED_DO_NOT_USE			(0)		/* 4 vectors [c0,c3] */
+
+// ------------------------------------------------------------------------------------------------------------------------------------------
+
+#define REG_RESERVED_DO_NOT_USE				register(c0)	/* 4 vectors [c0,c3] */
+
+#define REG_cmWorldMat						register(c4)	/* 4 vectors [c0,c3] */
+#define REG_cmWorldMatTranspose				register(c8)	/* 4 vectors [c4,c7] */
+#define REG_cmWorldView						register(c12)	/* 4 vectors [c8,c11] */
+#define REG_cmShadowMapWVP					register(c16)	/* 4 vectors [c12,c15] */
+#define REG_cmLightWVP						register(c20)	/* 4 vectors [c16,c19] */
+#define REG_cmWorldViewProj					register(c24)	/* 4 vectors [c20,c23] */
+#define REG_cmPrevWorldViewProj				register(c28)	/* 4 vectors [c24,c27] */
+#define REG_cvLocalEyePos					register(c32)	/* 1 vecotr	 [c32] */
+#define REG_cvLocalLightVec					register(c33)	/* 1 vecotr	 [c33] */
+#define REG_cfSkyDomeRotation				register(c34)	/* 1 vecotr	 [c34] */
+
+#define REG_cmLocalColourMatrix				register(c36)	/* 4 vectors [c36,c39] */
+#define REG_cmLocalDirectionMatrix			register(c40)	/* 4 vectors [c40,c43] */
+#define REG_cmLocalPositionMatrix			register(c44)	/* 4 vectors [c44,c47] */
+#define REG_cavHarmonicCoeff				register(c48)	/* 10 floats, 3 vectors, 1 pad vector [48,51] */
+
+#define REG_cvWorldSpecularColour			register(c49)
+#define REG_cvWorldSunColour				register(c50)
+#define REG_cvWorldAmbientColour			register(c51)
+
+#define REG_camBlendMatrices				register(c52)	/* 64 vectors [c52,c115] */
+#define REG_cavWorldHeadlightDirection		register(c68)	/* 2 vectors [c68,c69] */
+#define REG_cavWorldHeadlightPosition		register(c70)	/* 2 vectors [c70,c71] */
+#define REG_cavWorldHeadlightUpDirection	register(c72)	/* 2 vectors [c72,c73] */
+
+#define REG_cvSHColour						register(c51)
+
+// available: [c82,c115] (but would alias cavPcaWeightsR and cavPcaWeightsG)
+// PCA/UCap parameters (ucap.fx, water.fx)
+#define REG_cafPcaMean					register(c81)	/* 1 vector */
+#define REG_cavPcaWeightsR				register(c82)	/* 22 vectors [c82,c103] */
+#define REG_cavPcaWeightsG				register(c104)	/* 22 vectors [c104,c125] */
+#define REG_cavPcaWeightsB				register(c126)	/* 22 vectors [c126,c147] */
+#define REG_cavPcaWeightsX				register(c148)	/* 8 vectors [c148,c155] */
+#define REG_cavPcaWeightsY				register(c156)	/* 8 vectors [c156,c163] */
+#define REG_cavPcaWeightsZ				register(c164)	/* 8 vectors [c164,c171] */
+#define REG_cavPcaWeightsNX				register(c172)	/* 8 vectors [c172,c179] */
+#define REG_cavPcaWeightsNY				register(c180)	/* 8 vectors [c180,c187] */
+#define REG_cavPcaWeightsNZ				register(c188)	/* 8 vectors [c188,c195] */
+#define REG_cavFeatureHeights			register(c196)	/* 1 vector */
+
+// The following parameters alias cavPcaWeightsG:
+#define REG_cfMipMapBias				register(c116)
+#define REG_cfBrightness				register(c117)
+#define REG_cfSurfaceReflection			register(c118)
+#define REG_cfRainIntensity				register(c119)
+#define REG_cfSpecularPower				register(c120)
+#define REG_cfMetallicScale				register(c121)
+#define REG_cfEnvmapPullAmount			register(c122)
+#define REG_cfEnvmapPower				register(c123)
+#define REG_PAD2						register(c125)
+
+// The following parameters alias cavPcaWeightsB:
+#define REG_cfCombinedBrightness		register(c126)
+#define REG_cvVisualEffectFadeColour	register(c127)	/* also aliases cfSkyAlphaTag */
+#define REG_cfSkyAlphaTag				register(c127)	/* also aliases cvVisualEffectFadeColour */
+#define REG_cfShadowVolumeOffset		register(c128)
+#define REG_cfRVMWorldBrightness		register(c129)
+#define REG_cfDesaturation				register(c130)
+#define REG_cfSplitScreenUVScale		register(c132)
+#define REG_cfColourCubeFilterBlend		register(c133)
+#define REG_cfTimeTicker				register(c134)
+#define REG_cfMiddleGray				register(c135)
+#define REG_cfBrightPassThreshold		register(c136)
+#ifndef SMOKE_XENON
+#define REG_cvScreenOffset				register(c137)
+#else
+#define REG_cvScreenOffset				register(c63)
+#endif
+#define REG_cvFog_Br_Plus_Bm			register(c138)
+#define REG_cvFog_One_Over_BrBm			register(c139)
+#define REG_cvFog_Const_1				register(c140)
+#define REG_cvFog_Const_2				register(c141)
+#define REG_cvFog_Const_3				register(c142)
+#define REG_cvAmbientColour				register(c143)
+#define REG_cvShadowParams0				register(c144)
+#define REG_cvShadowParams1				register(c145)
+
+// The following parameters alias cavPcaWeightsX:
+#define REG_cvDiffuseColour				register(c148)
+#define REG_cvSpecularColour			register(c149)
+// available: [c150,c155] (but would alias cavPcaWeightsX)
+
+// The following parameters alias cavPcaWeightsY:
+#define REG_cvShadowColour				register(c156)
+#define REG_cvTextureOffset				register(c161)
+#define REG_cvLocalCenter				register(c162)
+#define REG_cvTreeParams				register(c163)
+
+// The following parameters alias cavPcaWeightsZ:
+#define REG_cvBaseAlphaRef				register(c164)
+#define REG_cvCloudIntensity			register(c165)
+#define REG_cvLocalLightPos				register(c166)
+#define REG_cvPixelizationScale			register(c167)
+#define REG_cvGrassColour				register(c169)
+
+// The following parameters alias cavPcaWeightsNX:
+#define REG_cvDepthOfFieldParams		register(c172)	/* aliases cavFeatureHeights */
+#define REG_cvBlurParams				register(c173)
+
+// The following parameters alias cavPcaWeightsNX and cavPcaWeightsNY:
+#define REG_cavSampleOffsetWeights		register(c174)	// 16 vectors
+#define REG_cvSmokeParams				register(c175)
+#define REG_cmShadowMapVP				register(c180)	// 4 vectors
+#define REG_cmShadowMapBiasMatrix		register(c184)	// 4 vectors
+#ifndef SMOKE_XENON
+#define REG_cmCSMTransform				register(c188)	// 4 vectors
+#else
+#define REG_cmCSMTransform				register(c50)	// 4 vectors
+#endif
+#define REG_cvTint						register(c190)
+#define REG_PAD0						register(c191)	/* free space!! */
+
+
+// bbfx material paramters for world
+
+#define	REG_cfAmbientIntensityW			register(c191)  /* reuse these registers for shaders that need 2 */
+#define	REG_cfDiffuseIntensityW			register(c192)  /* reuse these registers for shaders that need 2 */
+#define	REG_cfSpecularIntensityW		register(c193)  /* reuse these registers for shaders that need 2 */
+#define	REG_cfSpecularPowerW			register(c194)  /* reuse these registers for shaders that need 2 */
+#define	REG_cfReflectionIntensityW		register(c195)
+#define	REG_cfSpecularBackscatterW		register(c196)  /* reuse these registers for shaders that need 2 */
+#define	REG_cfLod_blend_beginW			register(c197) 
+#define	REG_cfLod_blend_biasW			register(c198) 
+#define	REG_cfIlluminationIntensityW	register(c199) 
+#define	REG_cvSpecularColourW			register(c200)
+#define	REG_cfReflectionLightingW		register(c201)
+#define	REG_cfReflectionLtgPwrW			register(c202)
+#define	REG_cfDiffuseIntensity1W		register(c192)
+#define	REG_cfSpecularIntensity1W		register(c193)
+#define	REG_cfSpecularPower1W			register(c194)
+//#define	REG_cfReflectionIntensityW		register(c195)  /* note this is just here to let Andy know I need it in this group */
+#define	REG_cfDiffuseIntensity2W		register(c196)
+#define	REG_cfSpecularIntensity2W		register(c197)
+#define	REG_cfSpecularPower2W			register(c198)
+#define REG_cfDirtAmbientIntensityW		register(c191)
+#define REG_cfDirtBackscatterW			register(c192)
+#define REG_cfDirtSpecularIntensity		register(c193)
+#define REG_cfDirtSpecularPowerW		register(c194)
+#define REG_cfGrassAmbientIntensityW	register(c195)
+#define REG_cfGrassBackscatterW			register(c196)
+#define REG_cfGrassSpecularIntensityW	register(c197)
+#define REG_cfGrassSpecularPowerW		register(c198)
+#define REG_cfRockAmbientIntensityW		register(c199)
+#define REG_cfRockSpecularIntensityW	register(c200)
+#define REG_cfRockSpecularPowerW		register(c201)
+#define	REG_cvDirtSpecularColorW		register(c202)
+#define	REG_cvGrassSpecularColorW		register(c203)
+#define	REG_cvRockSpecularColorW		register(c204)
+#define	REG_cfDebugDiffuseTexW			register(c250)  
+#define	REG_cfDebugSpecularTexW			register(c251) 
+#define	REG_cfDebugNormalTexW			register(c252) 
+#define	REG_cfDebugNormalScaleW			register(c253)
+#define REG_cvFogValue					register(c206)
+#define REG_cvFogColour					register(c207)
+#define REG_cfSkyFogFalloff				register(c208)
+#define REG_cfLightMapVertColBlend		register(c209)
+#define REG_cvLightColour				register(c210)
+#define REG_cvLightPosition				register(c211)
+#define REG_cvFrustumVector				register(c212)
+#define REG_cvSunHazeColour				register(c213)
+#define REG_cfVSMEnabled				register(c214)
+#ifndef SMOKE_XENON
+#define REG_cvVertexPowerBrightness		register(c216)
+#else
+#define REG_cvVertexPowerBrightness		register(c62)
+#endif
+#define REG_cfDrawDepthOfField			register(c230)
+#define REG_cfFogEnable					register(c240)
+#define REG_CSMTransform				register(c249) /* 4 vectors [c249,c252] */
+
+// Light Material Registers - alias REG_cavLightDirections
+
+#define REG_cvDiffuseMin				register(c228)
+#define REG_cvDiffuseRange				register(c229)
+#define REG_cvEnvmapMin					register(c230)
+#define REG_cvEnvmapRange				register(c231)
+#define REG_cvSpecularMin				register(c232)
+#define REG_cvSpecularRange				register(c233)
+#define REG_cvSpecular1Min				register(c234)
+#define REG_cvSpecular1Range			register(c235)
+#define REG_cvPowers					register(c236)
+#define REG_cvClampAndScales			register(c237)
+#define REG_cvFlakes					register(c238)
+#define REG_cvVinylScales				register(c239)
+
+#define	REG_cvGradientParams            register(c240)
+#define	REG_cvGradientColour            register(c241)
+#define	REG_cvGradientColourE           register(c242)
+#define	REG_ScreenRez                  	register(c243)
+#define REG_cfScaleUVs					register(c244)
+#define REG_cvVisualTreatmentParams		register(c245)
+#define REG_cvVisualTreatmentParams2	register(c246)
+#define REG_cvVisualTreatmentParams3	register(c247)
+#define REG_cfCurrentTime				register(c248)
+
+
+// for the constants heavy shader instancing
+// 4 vectors, c4 to c7
+
+#define REG_cvInstanceWorldSunColour		register(c61)
+#define REG_cfSmokeLightInfluence			register(c60)
+#define REG_cvInstanceWorldSunPosition		register(c59)
+#define REG_cvInstanceData					register(c58)	// 4 Vectors
+#define REG_cmInstanceVP					register(c54)
+#define REG_cvInstanceWorldAmbientColour	register(c11)
+#define REG_cvInstancedFogColour			register(c12)
+#define REG_cvInstancedFogValue				register(c13)
+#define REG_cvInstanceArray					register(c64)
+
+
+// Aliased With Light Materials ...
+
+
+</file>
+  <file id="4" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Indep\Src\Render\effects\common\global_common.h" time="01c8f9c0-c76d0f4e">#ifndef __GLOBAL_COMMON_H__
+#define __GLOBAL_COMMON_H__
+
+//--------------------------------------------------------------------------------------
+// Defines
+//--------------------------------------------------------------------------------------
+#define COMPILETIME_BOOL		uniform bool
+#define PARABOLOIDBASIS_TRUE	true
+#define PARABOLOIDBASIS_FALSE	false
+#define INSTANCE_RENDER_TRUE	true
+#define INSTANCE_RENDER_FALSE	false
+
+//--------------------------------------------------------------------------------------
+// Global Parameters
+//--------------------------------------------------------------------------------------
+float4x4	cmWorldViewProj		: REG_cmWorldViewProj;
+float4x4	cmWorldView			: REG_cmWorldView;
+
+float4	cvLocalLightVec			: REG_cvLocalLightVec;  // LOCALLIGHTDIRVECTOR;
+float4	cvLocalEyePos			: REG_cvLocalEyePos;    // LOCALEYEPOS;
+
+float4x4 cmWorldMat				: REG_cmWorldMat;				// WORLD
+float4x4 cmWorldMatTranspose	: REG_cmWorldMatTranspose;
+
+// Used to pass the world matrix transpose to the Shader when instance rendering.
+float4x4	mWorldTransposeInstance;
+
+// Used to pass the world matrix to the Shader when instance rendering.
+float4x4	mWorldInstance;
+
+// Used to pass the light and eye vectors to the PixelShader when instance rendering.
+float3		vLocalLightDir;
+float4		vLocalEyePos;
+
+//--------------------------------------------------------------------------------------
+// Functions - Used by instance rendering to deal with model space variables.
+//--------------------------------------------------------------------------------------
+float3 GetLocalLightDir(COMPILETIME_BOOL instanceRendering)
+{
+	if(!instanceRendering)
+	{
+		return cvLocalLightVec.xyz;
+	}
+	else
+	{
+		return vLocalLightDir;
+	}
+}
+
+float3 GetLocalEyePos(COMPILETIME_BOOL instanceRendering)
+{
+	if(!instanceRendering)
+	{
+		return cvLocalEyePos.xyz;
+	}
+	else
+	{
+		return vLocalEyePos.xyz;
+	}
+}
+
+//--------------------------------------------------------------------------------------
+// Functions - Used by many shaders.
+//--------------------------------------------------------------------------------------
+
+inline float3 NormalTransform(float3 n, COMPILETIME_BOOL instanceRendering)
+{
+    /*
+    Handle Mirror
+
+    Object "mirroring" is a negative scale factor in the world matrix
+    Mirror can be detected by crossing the RIGHT and OUT basis vectors
+    If the UP vector points down (negative), we have a mirror transform.
+    This is handled by applying the sign of the UP vector to the normal
+    */
+
+    float3 up;
+
+    // Compile time branch
+    if(instanceRendering)
+    {
+        up = cross(mWorldInstance[0].xyz,mWorldInstance[1].xyz );
+    }
+    else
+    {
+        up = cross(cmWorldMat[0].xyz,cmWorldMat[1].xyz );
+    }
+    n.xyz *= sign(up.z);
+
+    return (n);
+}
+
+float bias(float b, float x)
+{
+return pow(x, log(b)/log(0.5));
+}
+
+//keep these around in case I need them
+/*
+float gain(float g, float x)
+{
+	float retVal	=  x &lt; 0.5 ? bias(1-g, 2*x)/2 : 1 - bias(1-g, 2 - 2*x)/2;
+	return retVal;
+}
+
+float3 mix( float3 color0, float3 color1, float value )
+{
+return (1-value)*color0 + value*color1; 
+}
+*/
+
+float valueOf(float3 colorVal)
+{
+
+	float minVal	= min(min(colorVal.r, colorVal.g), colorVal.b);
+	float maxVal	= max(max(colorVal.r, colorVal.g), colorVal.b);
+	float delta		= maxVal - minVal;
+
+	float value		= maxVal;
+
+	float satVal	= maxVal &gt; 0 ? delta/maxVal: 0;
+	return value;
+}
+
+/*
+float saturationOf(float3 colorVal)
+{
+
+	float minVal	= min(min(colorVal.r, colorVal.g), colorVal.b);
+	float maxVal	= max(max(colorVal.r, colorVal.g), colorVal.b);
+	float delta		= maxVal - minVal;
+
+	float value		= maxVal;
+
+	float satVal	= maxVal &gt; 0 ? delta/maxVal: 0;
+	return satVal;
+}
+
+float hueOf(float3 colorVal)
+{
+
+	float minVal	= min(min(colorVal.r, colorVal.g), colorVal.b);
+	float maxVal	= max(max(colorVal.r, colorVal.g), colorVal.b);
+	float delta		= maxVal - minVal;
+
+	float value		= maxVal;
+
+	float satVal	= maxVal &gt; 0 ? delta/maxVal: 0;
+
+
+	float hue		= colorVal.r == maxVal ? ((colorVal.g - colorVal.b)/delta ): 0;  // between yellow and magenta
+	hue				= colorVal.g == maxVal ? (2 + (colorVal.b - colorVal.r)/delta) : hue; // between cyan and yellow
+	hue				= colorVal.b == maxVal ? (4 + (colorVal.r - colorVal.g)/delta) : hue; // between magenta and cyan
+	hue				*= 60;
+	hue				= hue &lt; 0 ? hue + 360 : hue;
+
+	return hue;
+}
+*/ 
+#endif //__GLOBAL_COMMON_H__
+
+</file>
+  <file id="5" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Indep\Src\Render\effects\common\reflection.h" time="01c8f9c0-c76f71a8">// Copyright (C) Electronic Arts Canada Inc. 2008. All rights reserved.
+
+#if !defined(_REFLECTION_H_)
+#define _REFLECTION_H_
+
+//#define ENVMAP_TESTING
+
+float4x4 cmEnvMapParaboloid0Matrix;
+float4x4 cmEnvMapParaboloid1Matrix;
+float4x4 cmEnvMapParaboloid2Matrix;
+float4x4 cmEnvMapCube0Matrix;
+float4x4 cmEnvMapCube1Matrix;
+float4x4 cmEnvMapCube2Matrix;
+float4x4 cmEnvMapPlane0Matrix;
+
+samplerCUBE ENVMAP_CUBE0_SAMPLER 
+&lt;
+string TextureSamplerState = "ENVMAP_SAMPLER";
+&gt;;
+
+samplerCUBE ENVMAP_CUBE1_SAMPLER 
+&lt;
+string TextureSamplerState = "ENVMAP_SAMPLER";
+&gt;;
+
+samplerCUBE ENVMAP_CUBE2_SAMPLER 
+&lt;
+string TextureSamplerState = "ENVMAP_SAMPLER";
+&gt;;
+
+sampler2D ENVMAP_PARABOLOID0_SAMPLER
+&lt;
+string TextureSamplerState = "ENVMAP_SAMPLER";
+&gt;;
+
+sampler2D ENVMAP_PARABOLOID1_SAMPLER
+&lt;
+string TextureSamplerState = "ENVMAP_SAMPLER";
+&gt;;
+
+sampler2D ENVMAP_PARABOLOID2_SAMPLER
+&lt;
+string TextureSamplerState = "ENVMAP_SAMPLER";
+&gt;;
+
+sampler2D ENVMAP_PLANE0_SAMPLER
+&lt;
+string TextureSamplerState = "ENVMAP_SAMPLER";
+&gt;;
+
+#define PARABOLOID_BASIS_FARPLANE 500.f
+#define PARABOLOID_BASIS_NEARPLANE 0.1f
+
+#define EnvironmentMapLookup_Car(xxworldspacereflectionvector, mipmaplevel)		EnvironmentMapLookup_Paraboloid_MipLevel(xxworldspacereflectionvector, ENVMAP_PARABOLOID1_SAMPLER, (float3x3)cmEnvMapParaboloid1Matrix, mipmaplevel)
+//#define EnvironmentMapLookup_Car(xxworldspacereflectionvector)				EnvironmentMapLookup_Cube(xxworldspacereflectionvector, ENVMAP_CUBE0_SAMPLER, (float3x3)cmEnvMapCube0Matrix)
+#define EnvironmentMapLookup_World(xxworldspacereflectionvector)				EnvironmentMapLookup_Paraboloid(xxworldspacereflectionvector, ENVMAP_PARABOLOID0_SAMPLER, (float3x3)cmEnvMapParaboloid0Matrix)
+//#define EnvironmentMapLookup_World(xxworldspacereflectionvector)				EnvironmentMapLookup_Paraboloid_MipLevel(xxworldspacereflectionvector, ENVMAP_PARABOLOID0_SAMPLER, (float3x3)cmEnvMapParaboloid0Matrix, kEnvmipMipLevel)
+//#define EnvironmentMapLookup_World(xxworldspacereflectionvector)				EnvironmentMapLookup_Cube(xxworldspacereflectionvector, ENVMAP_CUBE1_SAMPLER, (float3x3)cmEnvMapCube1Matrix)
+#define EnvironmentMapLookup_Building(xxworldspacereflectionvector)				EnvironmentMapLookup_Paraboloid(xxworldspacereflectionvector, ENVMAP_PARABOLOID2_SAMPLER, (float3x3)cmEnvMapParaboloid2Matrix)
+//#define EnvironmentMapLookup_Building(xxworldspacereflectionvector)			EnvironmentMapLookup_Cube(xxworldspacereflectionvector, ENVMAP_CUBE2_SAMPLER, (float3x3)cmEnvMapCube2Matrix)
+#define EnvironmentMapLookup_Character(xxworldspacereflectionvector)			EnvironmentMapLookup_Paraboloid_MipLevel(xxworldspacereflectionvector, ENVMAP_PARABOLOID2_SAMPLER, (float3x3)cmEnvMapParaboloid2Matrix, CharBlurFactor)
+//#define EnvironmentMapLookup_Character(xxworldspacereflectionvector)			EnvironmentMapLookup_Cube(xxworldspacereflectionvector, ENVMAP_CUBE2_SAMPLER, (float3x3)cmEnvMapCube2Matrix)
+#define EnvironmentMapLookup_CarHeavenFloor(xxworldspacereflectionvector)		EnvironmentMapLookup_Plane(xxworldspacereflectionvector, ENVMAP_PLANE0_SAMPLER, cmEnvMapPlane0Matrix)
+
+// Abstract the position basis for the reflection view so we can swap between
+// paraboloid and standard cartesian basis without client code needing to know.
+float4 EnvironmentMapLookup_Plane(float4 worldPosition, sampler2D envmapPlane, float4x4 world2envmap)
+{
+	float4 finalReflect = mul(worldPosition + float4(0, 0, 0.0, 0), world2envmap);
+	//finalReflect.xyz *= float3(1, 1, 1);
+	finalReflect.y = 1 - (finalReflect.y + 1.09);
+	float4 texcoords = float4(((finalReflect.xyz/finalReflect.www) + 1.0f) * 0.5f, 1);
+	return tex2Dproj(envmapPlane, texcoords);
+}
+
+float4 EnvironmentMapLookup_Cube(float3 reflectionVector, samplerCUBE envmapCube, float3x3 world2envmap)
+{
+	reflectionVector.y = -reflectionVector.y;
+	float4 envMapSample = texCUBE(envmapCube, mul(reflectionVector, world2envmap).xyz);
+
+	return envMapSample;
+}
+
+float4 EnvironmentMapLookup_Paraboloid(float3 reflectionVector, samplerCUBE envmapCube, float3x3 world2envmap)
+{
+	float3 pbmsReflection = mul(reflectionVector, world2envmap);
+	
+	float scale = 1.4;
+	float3 refFront;
+	refFront.x = (pbmsReflection.x / (1*(1 + pbmsReflection.z))) + 0.0;
+	refFront.y = (-pbmsReflection.y / (1*(1 + pbmsReflection.z))) + 0.0;
+	refFront.z = 1 / scale;
+
+	float3 refBack;
+	refBack.x = (pbmsReflection.x / (1*(1 - pbmsReflection.z))) + 0.0;
+	refBack.y = ((pbmsReflection.y / (1*(1 - pbmsReflection.z))) + 0.0);
+	refBack.z = -1 / scale;
+
+	float4	envmap_sampleF = texCUBE(envmapCube, refFront.xyz);
+	float4	envmap_sampleB = texCUBE(envmapCube, refBack.xyz);
+
+	float4	envmap_sample = 0; //float4(1, 1, 1, 1);
+	
+	// Branch is acceptable as this is effectively debugging code
+	if (pbmsReflection.z &gt; 0)
+	{
+		envmap_sample = envmap_sampleF;
+	}
+	else
+	{
+		envmap_sample = envmap_sampleB;
+	}
+	return envmap_sample;
+}
+
+float4 EnvironmentMapLookup_ParaboloidUVUV(float3 pbmsReflection)
+{
+	float2 refFront;
+	refFront.x = (pbmsReflection.x / (1*(1 + pbmsReflection.z))) + 0.0;
+	refFront.y = (pbmsReflection.y / (1*(1 + pbmsReflection.z))) + 0.0;
+
+	float2 refBack;
+	refBack.x = (pbmsReflection.x / (1*(1 - pbmsReflection.z))) + 0.0;
+	refBack.y = ((pbmsReflection.y / (1*(1 - pbmsReflection.z))) + 0.0);
+
+	float2	envmap_sampleF = float2(0.5, 0.25) * refFront.xy + float2(0.5, 0.25);
+	float2	envmap_sampleB = float2(0.5, 0.25) * refBack.xy + float2(0.5, 0.75);
+
+	envmap_sampleB.x = 1 - envmap_sampleB.x;
+	return float4(envmap_sampleF, envmap_sampleB);
+}
+
+float4 EnvironmentMapLookup_Paraboloid(float3 reflectionVector, sampler2D envmapParaboloid, float3x3 world2envmap)
+{
+	float3 pbmsReflection = mul(reflectionVector, world2envmap);
+
+	float4 uvuv = EnvironmentMapLookup_ParaboloidUVUV(reflectionVector);
+	float4	envmap_sampleF = tex2D(envmapParaboloid, uvuv.xy);
+	float4	envmap_sampleB = tex2D(envmapParaboloid, uvuv.zw);
+
+	float4	envmap_sample = 0;
+	if (pbmsReflection.z &gt; 0)
+	{
+		envmap_sample = envmap_sampleF;
+	}
+	else
+	{
+		envmap_sample = envmap_sampleB;
+	}
+	return envmap_sample;
+}
+
+float4 EnvironmentMapLookup_Paraboloid_MipLevel(float3 reflectionVector, sampler2D envmapParaboloid, float3x3 world2envmap, float miplevel)
+{
+	float3 pbmsReflection = mul(reflectionVector, world2envmap);
+
+	float4 uvuv = EnvironmentMapLookup_ParaboloidUVUV(reflectionVector);
+
+#if defined(SHADERMODEL_3_0)
+	float4	envmap_sampleF = tex2Dlod(envmapParaboloid, float4(uvuv.xy, 0.f, miplevel));
+	float4	envmap_sampleB = tex2Dlod(envmapParaboloid, float4(uvuv.zw, 0.f, miplevel));
+#elif defined(SHADERMODEL_2_0)
+	float4	envmap_sampleF = tex2D(envmapParaboloid, uvuv.xy);
+	float4	envmap_sampleB = tex2D(envmapParaboloid, uvuv.zw);
+#else
+#error Unsupported shadermodel
+#endif
+
+	float4	envmap_sample = 0;
+	if (pbmsReflection.z &gt; 0)
+	{
+		envmap_sample = envmap_sampleF;
+	}
+	else
+	{
+		envmap_sample = envmap_sampleB;
+	}
+	return envmap_sample;
+}
+
+float4 world_paraboloid_position( float4 modelspace_position )
+{
+ 	float4 p = mul(modelspace_position, cmWorldView);
+#if defined(ENABLE_SCREENOFFSET)
+	p.xy += cvScreenOffset.xy * p.w;
+#endif // ENABLE_SCREENOFFSET
+	p /= p.w;
+	float L = length(p.xyz);
+	p /= L;
+	p.z += 1;
+	p.x = p.x / p.z;
+	p.y = -p.y / p.z;
+	p.z = (L - PARABOLOID_BASIS_NEARPLANE) / (PARABOLOID_BASIS_FARPLANE - PARABOLOID_BASIS_NEARPLANE);
+	p.w = 1;
+    return p;
+}
+
+#endif	// _REFLECTION_H_
+</file>
+  <file id="6" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Indep\Src\Render\effects\common\screeneffectglobals.h" time="01c8f9c0-c76f71a8">#ifndef	SCREENEFFECT_GLOBALS_H
+#define SCREENEFFECT_GLOBALS_H
+
+//--------------------------------------------------------------------------------------
+// INCLUDES
+//--------------------------------------------------------------------------------------
+
+#include "global.h"
+
+//--------------------------------------------------------------------------------------
+// INSTANCE CONSTANTS
+//--------------------------------------------------------------------------------------
+
+static const int MAX_SAMPLES = 16;
+float4 cavSampleOffsetWeights[MAX_SAMPLES];
+float4 cvBlurParams	: REG_cvBlurParams;
+
+//--------------------------------------------------------------------------------------
+// MATERIAL CONSTANTS
+//--------------------------------------------------------------------------------------
+
+//--------------------------------------------------------------------------------------
+// GLOBALS
+//--------------------------------------------------------------------------------------
+
+// Constants used by the ConvertYUVToRGB technique
+static const float3 gYUVBias = 
+{
+	-0.062745, 
+	-0.50196, 
+	-0.50196
+};
+
+static const float3x3 gYUV2RGBTransform = 
+{ 
+	1.1641444,  1.1641444,  1.1641444,
+	-0.0017889, -0.3914428,  2.0178255,
+	1.5957862, -0.8134821, -0.0012458
+};
+
+//--------------------------------------------------------------------------------------
+// SAMPLERS
+//--------------------------------------------------------------------------------------
+
+sampler2D TEXTURE1_SAMPLER
+&lt;
+	string TextureSamplerState = "SCREENLINEAR_SAMPLER";
+&gt;;
+
+sampler2D TEXTURE2_SAMPLER
+&lt;
+	string TextureSamplerState = "SCREEN_SAMPLER";
+&gt;;
+
+sampler2D TEXTURE3_SAMPLER
+&lt;
+	string TextureSamplerState = "SCREEN_SAMPLER";
+&gt;;
+
+sampler2D DIFFUSE_SAMPLER
+&lt;
+	string TextureSamplerState = "SCREEN_SAMPLER";
+&gt;;
+
+sampler2D MOTIONBLUR_SAMPLER
+&lt;
+	string TextureSamplerState = "SCREEN_SAMPLER";
+&gt;;
+
+sampler2D DEPTHBUFFER_SAMPLER
+&lt;
+	string TextureSamplerState = "DEPTH_SAMPLER";
+&gt;;
+
+sampler2D PERLINNOISE_SAMPLER
+&lt;
+	string TextureSamplerState = "DIFFUSE_SAMPLER";
+&gt;;
+
+//--------------------------------------------------------------------------------------
+// STRUCTURES
+//--------------------------------------------------------------------------------------
+
+struct VS_INPUT
+{
+	float4 Position : POSITION;
+	float2 TexCoord : TEXCOORD;
+};
+
+struct PS_INPUT
+{
+	float4 Position : POSITION;
+	float2 TexCoord : TEXCOORD0;	
+};
+
+struct DepthSpriteOut
+{
+	float4 Colour : COLOR0;
+	// Passing thru depth on the PC (1) isn't needed, (2) seems to cause visual errors on nvidia 7-series gpus
+#ifndef MOTIONBLUR_DONTPASSTHRUDEPTH
+	float Depth : DEPTH0;
+#endif
+};
+
+struct PrepBuffersOut
+{
+	float4 Colour0 : COLOR0;
+#ifdef PLAT_XENON
+	float4 Colour1 : COLOR1;
+#endif
+	float Depth : DEPTH0;
+};
+
+struct CompositeOut
+{
+	float4 Colour : COLOR0;
+	float Depth : DEPTH0;
+};
+
+//--------------------------------------------------------------------------------------
+// Global Functions
+//--------------------------------------------------------------------------------------
+
+float4 GetBase( float2 texUV )
+{
+	float4 base = tex2D( TEXTURE1_SAMPLER, texUV );
+	//base.xyz += (dot( base.xyz, LUMINANCE_VECTOR ) &gt; 0.95) ? base.xyz : 0.0f;
+	return base;
+}
+
+#endif
+</file>
+  <file id="7" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Indep\Src\Render\effects\common\sunhazefog.h" time="01c8f9c0-c76f71a8">#ifndef SUNHAZEFOG_H
+#define SUNHAZEFOG_H
+
+
+#include "global.h"
+
+
+////////////////////////////////////////////////// 
+// Fogging parameters
+/////////////////////////////////////////////////
+float4 cvFrustumVector					: REG_cvFrustumVector ;
+
+float4 cvFogValue						: REG_cvFogValue;
+float4 cvFogColour						: REG_cvFogColour;
+float4 cvSunHazeColour					: REG_cvSunHazeColour;
+float4 cvSunHazeFogParams;
+float4 cvFogColourFar;
+ 
+#define FOG_DENSITY_VALUE				cvFogValue[0]
+#define FOG_SUN_HAZE_EXPONENT			cvFogValue[1]
+// We use the following two variables to convert from a depth buffer texture to a world distance
+#define FAR_OVER_FAR_MINUS_NEAR			cvFogValue[2]
+#define FAR_X_NEAR_OVER_FAR_MINUS_NEAR	cvFogValue[3]
+
+#define SUN_HAZE_DIST_BIAS				cvSunHazeColour.w
+#define	SUN_HAZE_OCCLUSION_FULLSCREEN	cvFrustumVector.w
+#define	SUN_HAZE_OCCLUSION_WORLD		cvFogValue[2]
+#define EXPOSURE_SCALE                  cvFogColour[3]
+
+#define TONE_MAPPING_CONTRAST			cvSunHazeFogParams.x
+#define TONE_MAPPING_SATURATION			cvSunHazeFogParams.y
+#define FOG_NEAR						cvSunHazeFogParams.z
+#define FOG_FAR							cvSunHazeFogParams.w
+
+#define FOGMODE_LINEAR 1
+#define FOGMODE_EXP    2 
+#define FOGMODE_EXP2   3 
+
+
+float CalcFogFactor( float d, const uniform int fogMode )
+{
+	#define E 2.71828
+
+	float g_fogDensity = 10;//FOG_DENSITY_VALUE;  
+
+    float fogCoeff;
+    
+    if( FOGMODE_LINEAR == fogMode )
+    {
+        fogCoeff = (FOG_FAR - d)/(FOG_FAR - FOG_NEAR);
+    }
+    else if( FOGMODE_EXP == fogMode )
+    {
+      fogCoeff = 1.0 / pow( E, d*g_fogDensity );
+    }
+    else if( FOGMODE_EXP2 == fogMode )
+    {
+       fogCoeff = 1.0 / pow( E, d*d*g_fogDensity*g_fogDensity );
+	}
+    return clamp( fogCoeff, 0, 1 );
+}
+
+float4 ComputeFoggingWorld(float4 unFoggedColour, float fog, float sunDotView)
+{
+	float4 result = unFoggedColour;
+
+	// This becomes &gt; 0 for pixels that are near the sun onscreen. We will makes the sun-haze component larger and the normal fog smaller in these cases
+	float3 fogColourWithDiffuse = lerp(cvFogColour.xyz , unFoggedColour.xyz, fog);
+
+	sunDotView = pow(sunDotView, FOG_SUN_HAZE_EXPONENT) ;
+	sunDotView *= SUN_HAZE_OCCLUSION_WORLD;
+
+	float3 sunHazeWithDiffuse = lerp(cvSunHazeColour.xyz , unFoggedColour.xyz, fog * SUN_HAZE_DIST_BIAS);
+	float3 foggedColor = lerp(fogColourWithDiffuse, sunHazeWithDiffuse, sunDotView );
+	
+	// Without the following term, we would be completely fogging out the skybox and panorama. We limit how high the sun fog can come in
+	// It can only go X degrees above the horizon
+	result.xyz = foggedColor;
+
+	return result;
+}
+
+//$$TODO: the sky should be drawn at the far plane (exactly) rather than just "far" away
+//        when that change is made, this test can be changed to (z &gt; FARPLANE) -- cleaner
+inline float IsSky(float z) { return (z &gt; 4000); }
+
+float3 ApplyExposure(float3 c, float fScale, float fPixelDepth)
+{
+    // compute exposed pixel
+    float3 ret=c;
+    ret  = saturate(((c.rgb-.5)*TONE_MAPPING_CONTRAST)+.5);                        // contrast
+    ret  = lerp(dot(ret.xyz,float3(.3,.59,.11)),ret.xyz,TONE_MAPPING_SATURATION);  // desat
+
+    /* 
+        Apply/composite result
+
+        NOTES:
+            exposure compensation tied directly to haze
+            sky is masked out (applying exposure does NOT change any sky pixels)
+    */
+    ret  = lerp(c.xyz,ret.xyz,fScale*min(1-IsSky(fPixelDepth),SUN_HAZE_OCCLUSION_FULLSCREEN));
+
+    return (ret);
+}
+
+// depth should be a direct read from the depth buffer texture. we will convert it to world space distance in here
+float4 ComputeFogging(float4 backgroundColor, float2 texCoord, float depth)
+{
+	// world z distance = (-q * n) / (z' - q)
+	// q = far / (far - near)
+	// z' is from the depth buffer
+	float zDist = (FAR_X_NEAR_OVER_FAR_MINUS_NEAR) / (depth - FAR_OVER_FAR_MINUS_NEAR);
+
+	float4 result = backgroundColor;
+
+   // return backgroundColor;
+
+	// convert to range -1 to 1
+	float nx = texCoord.x * 2 - 1;
+	float ny = texCoord.y * 2 - 1;
+
+	float3 toPixelVector = normalize(float3(cvFrustumVector.x * nx , cvFrustumVector.y * ny, cvFrustumVector.z));
+ 
+	// This becomes &gt; 0 for pixels that are near the sun onscreen. We will makes the sun-haze component larger and the normal fog smaller in these cases
+	float ldotv = saturate(dot(cvLocalLightVec.xyz, toPixelVector));
+
+	// Traditional OpenGL fogging 
+	float fog = CalcFogFactor(zDist, FOGMODE_LINEAR); 
+
+	// X contains the fog instensity for normal fog
+	// Y contains the sun-haze intensity
+	float2 fogFactors = float2(fog, fog * SUN_HAZE_DIST_BIAS);
+
+	// needed for the sky. its at d=very large, but we do not want to fog it out
+    if (IsSky(zDist))
+    {
+		fogFactors = float2(1.0, 1.0);
+    }
+
+	// This tighens up the sun-haze so it doesn't fill the entire screen when looking directly at the sun
+	float sunDotView = pow(ldotv, FOG_SUN_HAZE_EXPONENT) ;
+	sunDotView *= SUN_HAZE_OCCLUSION_FULLSCREEN;
+
+	// Blend between FogColour and FogColourFar
+	float4 fogColour = lerp(cvFogColour, cvFogColourFar, saturate((zDist - FOG_NEAR) / (FOG_FAR - FOG_NEAR)) );
+
+    float3 fogColourWithDiffuse = lerp(fogColour.xyz , backgroundColor.xyz, fogFactors.x);
+    // SUN_HAZE_DIST_BIAS is used to pull the sun haze a bit closer in to the camera than the normal fog
+    float3 sunHazeWithDiffuse = lerp(cvSunHazeColour.xyz , backgroundColor.xyz, fogFactors.y);
+    float3 foggedColor = lerp(fogColourWithDiffuse, sunHazeWithDiffuse, sunDotView );
+
+    // Exposure
+    result.xyz = ApplyExposure(foggedColor.xyz,EXPOSURE_SCALE,zDist);
+
+    /*
+   float d	= (1 / (1-depth));
+    d = ((d*0.5) / 100);
+    result.rgb=d;//
+    */
+
+	return result;
+}
+
+#endif
+</file>
+  <file id="8" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Xenon\Src\Render\effects\depth.h" time="01c8f9c5-4d521c5e">#ifndef DEPTH_H
+#define DEPTH_H
+
+// XBOX 360
+
+#define DEPTH_HIZ
+
+//--------------------------------------------------------------------------------------
+// GLOBAL FUNCTIONS
+//--------------------------------------------------------------------------------------
+
+// at (uv), returns homogeneous depth, where 0 is the near plane, and 1 is the far plane
+float DepthSampleDepth(sampler2D s, float2 uv)
+{
+    float depth = tex2D( s, uv.xy ).x;
+
+#if defined (DEPTH_HIZ)
+    // inverted depth transform
+    depth = 1-depth;
+#endif
+
+    return (depth);
+}
+
+#endif // DEPTH_H
+</file>
+  <file id="9" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Xenon\Src\Render\effects\screen_effect_xbox360.h" time="01c8f9c5-4d521c5e">#ifndef	SCREENEFFECT_XBOX360_H
+#define SCREENEFFECT_XBOX360_H
+
+//--------------------------------------------------------------------------------------
+// INCLUDES
+//--------------------------------------------------------------------------------------
+
+#include "screeneffectglobals.h"
+#include "depth.h"
+
+//--------------------------------------------------------------------------------------
+// Pixel Shader
+//--------------------------------------------------------------------------------------
+
+float4 PS_DownScale2x2Rotate( const PS_INPUT IN ) : COLOR
+{
+	float2 screenPosition = IN.TexCoord;
+
+	float4 sample = tex2D( TEXTURE1_SAMPLER, screenPosition );
+	sample.w = 1; // set this to one so that the entire screen gets blurred
+
+	return sample;
+}
+
+//===========================================================================
+
+float4 PS_DownScale2x2Car( const PS_INPUT IN ) : COLOR
+{
+	float2 screenPosition = IN.TexCoord;
+
+	float4 sample = tex2D( TEXTURE1_SAMPLER, screenPosition);
+    float depth = DepthSampleDepth(TEXTURE2_SAMPLER, screenPosition);
+	float kDistFalloffStart = cvBlurParams.x;	// meters
+	float kDistFalloffEnd   = cvBlurParams.y;	// meters
+	float kM = -1 / ( kDistFalloffEnd-kDistFalloffStart );	// slope: how rapid the fall off is
+	float kC = -kDistFalloffEnd * kM;
+	depth = ( 1 / ( 1 - depth ) );
+	depth = saturate( depth * kM + kC );
+	sample.w = depth * sample.w; // Cars are rendered with sample.w = 1
+
+	return sample;
+}
+
+//===========================================================================
+
+float4 PS_DownScale2x2Motion( const PS_INPUT IN ) : COLOR
+{
+	float2 screenPosition = IN.TexCoord;
+
+	/*	
+	On further inspection the 2x2 box filter makes no bloody difference to the out come... so out it goes!!
+
+	float4 sample =	0.0f;
+	float depth = 0.0f;
+	for( int i=0; i	&lt; 4; i++ )
+	{
+	sample += tex2D( DIFFUSE_SAMPLER,	screenPosition	+ cavSampleOffsetWeights[i].xy );
+	depth  += tex2D( DEPTHBUFFER_SAMPLER,	screenPosition	+ cavSampleOffsetWeights[i].xy ).x;
+	}
+
+	sample /= 4;
+	depth  /= 4;
+	*/
+
+	float4 sample = tex2D( TEXTURE1_SAMPLER, screenPosition );
+	float depth = DepthSampleDepth(TEXTURE2_SAMPLER, screenPosition);
+	// The Alpha channel of the screen is a bloom mask so make sure the mask maintains it's bloom
+	// intensity through the motion blur
+	//
+	// Alpha channel no longer used for bloom
+	//sample.xyz += (sample.w*sample.xyz);	
+
+	// Ramp the colour down with distance (depth) - this way far away objects don't motion blur
+	//
+	float kDistFalloffStart = cvBlurParams.x;	// meters
+	float kDistFalloffEnd = cvBlurParams.y;	// meters
+	float kM = -1 / ( kDistFalloffEnd-kDistFalloffStart );	// slope: how rapid the fall off is
+	float kC = -kDistFalloffEnd * kM;
+	depth = ( 1 / ( 1 - depth ) );
+	depth = saturate( depth * kM + kC );
+
+	sample.w = depth;
+ 
+	return sample;
+}
+
+#endif
+</file>
+ </files>
+ <tool name="Compiler">
+  <defines>
+   <define name="SHADER_DEBUG" value="" />
+   <define name="PLAT_XENON" value="" />
+   <define name="SHADERMODEL_3_0" value="" />
+  </defines>
+  <arguments>
+   <argument name="/Zi" value="false" />
+   <argument name="/Vd" value="false" />
+   <argument name="/Xu0_deprecated" value="false" />
+   <argument name="/Odu_deprecated" value="false" />
+   <argument name="/XOd_" value="false" />
+   <argument name="/XOu" value="false" />
+   <argument name="/Xmaxtempreg" value="0" />
+   <argument name="PsSampBase" value="0" />
+   <argument name="PsSampCount" value="0" />
+   <argument name="VsSampBase" value="0" />
+   <argument name="VsSampCount" value="0" />
+   <argument name="VsInstCount" value="0" />
+   <argument name="PsInstCount" value="0" />
+   <argument name="/Od" value="false" />
+   <argument name="/Zpr" value="true" />
+   <argument name="/Zpc" value="false" />
+   <argument name="/Gpp" value="false" />
+   <argument name="/Op" value="false" />
+   <argument name="/Gfa" value="false" />
+   <argument name="/Gfp" value="true" />
+   <argument name="/XZc:zeroInit" value="false" />
+   <argument name="/XVe" value="false" />
+   <argument name="/Xbe:3-" value="false" />
+   <argument name="/Xbe:1-" value="false" />
+   <argument name="/XQInomaskedexports" value="false" />
+   <argument name="/XOautoz" value="true" />
+  </arguments>
+ </tool>
+ <shaders>
+  <shader entrypoint="PS_FacePixelate" target="ps_3_0" ZPass="0" pdbHint="4e4a0000-4bdb16b9-dd76ae16">
+   <constanttable>
+    <constant register="s0">
+     <type name="TEXTURE1_SAMPLER" class="object" type="sampler2D" />
+    </constant>
+    <constant register="c167">
+     <type name="cvPixelizationScale" class="vector" type="float" columns="2" />
+    </constant>
+   </constanttable>
+   <sourcemap>
+    <statement pc="1" file="1" line="155" scope="-1" lastinstruction="0" />
+    <statement pc="2" file="1" line="155" scope="-1" lastinstruction="0" />
+    <statement pc="3" file="1" line="155" scope="-1" lastinstruction="0" />
+    <statement pc="4" file="1" line="155" scope="-1" lastinstruction="0" />
+    <statement pc="5" file="1" line="156" scope="-1" lastinstruction="0" />
+    <statement pc="6" file="1" line="158" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="PS_DownScale2x2Motion" retID="289">
+     <parameter id="288" />
+    </function>
+    <function id="1" name="PS_DownScale2x2Car" retID="280">
+     <parameter id="279" />
+    </function>
+    <function id="2" name="PS_DownScale2x2Rotate" retID="276">
+     <parameter id="275" />
+    </function>
+    <function id="3" name="PS_CompositeSmoke" retID="268">
+     <parameter id="267" />
+    </function>
+    <function id="4" name="PS_PrepSmokeBuffers" retID="265">
+     <parameter id="264" />
+    </function>
+    <function id="5" name="PS_DepthSprite" retID="261">
+     <parameter id="260" />
+    </function>
+    <function id="6" name="PS_CompositeBlur" retID="259">
+     <parameter id="258" />
+    </function>
+    <function id="7" name="PS_CompositeBlurR" retID="257">
+     <parameter id="256" />
+    </function>
+    <function id="8" name="PS_CompositeBlurImplementation" retID="246">
+     <parameter id="244" />
+     <parameter id="245" />
+    </function>
+    <function id="9" name="PS_ConvertYUVToRGB" retID="241">
+     <parameter id="240" />
+    </function>
+    <function id="10" name="PS_DownScale2x2" retID="237">
+     <parameter id="236" />
+    </function>
+    <function id="11" name="PS_GaussBlur5x5" retID="234">
+     <parameter id="233" />
+    </function>
+    <function id="12" name="PS_DownScale4x4" retID="230">
+     <parameter id="229" />
+    </function>
+    <function id="13" name="PS_FacePixelate" retID="226">
+     <parameter id="225" />
+    </function>
+    <function id="14" name="PS_Bloom" retID="223">
+     <parameter id="222" />
+    </function>
+    <function id="15" name="PS_DownScaleBloom" retID="221">
+     <parameter id="220" />
+    </function>
+    <function id="16" name="VS_ConvertYUVtoRGB" retID="218">
+     <parameter id="217" />
+    </function>
+    <function id="17" name="VS_Pass" retID="215">
+     <parameter id="214" />
+    </function>
+    <function id="18" name="DepthSampleDepth" retID="210">
+     <parameter id="208" />
+     <parameter id="209" />
+    </function>
+    <function id="19" name="ComputeFogging" retID="194">
+     <parameter id="191" />
+     <parameter id="192" />
+     <parameter id="193" />
+    </function>
+    <function id="20" name="ApplyExposure" retID="189">
+     <parameter id="186" />
+     <parameter id="187" />
+     <parameter id="188" />
+    </function>
+    <function id="21" name="IsSky" retID="185">
+     <parameter id="184" />
+    </function>
+    <function id="22" name="ComputeFoggingWorld" retID="179">
+     <parameter id="176" />
+     <parameter id="177" />
+     <parameter id="178" />
+    </function>
+    <function id="23" name="CalcFogFactor" retID="173">
+     <parameter id="171" />
+     <parameter id="172" />
+    </function>
+    <function id="24" name="GetBase" retID="163">
+     <parameter id="162" />
+    </function>
+    <function id="25" name="DecodeRGBE8" retID="124">
+     <parameter id="123" />
+    </function>
+    <function id="26" name="EncodeRGBE8" retID="119">
+     <parameter id="118" />
+    </function>
+    <function id="27" name="DeCompressTextCoords" retID="117">
+     <parameter id="116" />
+    </function>
+    <function id="28" name="DeCompressColourSpace" retID="115">
+     <parameter id="114" />
+    </function>
+    <function id="29" name="CompressColourSpace" retID="113">
+     <parameter id="112" />
+    </function>
+    <function id="30" name="world_position" retID="111">
+     <parameter id="108" />
+     <parameter id="109" />
+     <parameter id="110" />
+    </function>
+    <function id="31" name="world_position" retID="107">
+     <parameter id="105" />
+     <parameter id="106" />
+    </function>
+    <function id="32" name="world_cartesian_position" retID="103">
+     <parameter id="102" />
+    </function>
+    <function id="33" name="world_paraboloid_position" retID="99">
+     <parameter id="98" />
+    </function>
+    <function id="34" name="EnvironmentMapLookup_Paraboloid_MipLevel" retID="92">
+     <parameter id="88" />
+     <parameter id="89" />
+     <parameter id="90" />
+     <parameter id="91" />
+    </function>
+    <function id="35" name="EnvironmentMapLookup_Paraboloid" retID="82">
+     <parameter id="79" />
+     <parameter id="80" />
+     <parameter id="81" />
+    </function>
+    <function id="36" name="EnvironmentMapLookup_ParaboloidUVUV" retID="74">
+     <parameter id="73" />
+    </function>
+    <function id="37" name="EnvironmentMapLookup_Paraboloid" retID="65">
+     <parameter id="62" />
+     <parameter id="63" />
+     <parameter id="64" />
+    </function>
+    <function id="38" name="EnvironmentMapLookup_Cube" retID="60">
+     <parameter id="57" />
+     <parameter id="58" />
+     <parameter id="59" />
+    </function>
+    <function id="39" name="EnvironmentMapLookup_Plane" retID="54">
+     <parameter id="51" />
+     <parameter id="52" />
+     <parameter id="53" />
+    </function>
+    <function id="40" name="valueOf" retID="22">
+     <parameter id="21" />
+    </function>
+    <function id="41" name="bias" retID="20">
+     <parameter id="18" />
+     <parameter id="19" />
+    </function>
+    <function id="42" name="NormalTransform" retID="16">
+     <parameter id="14" />
+     <parameter id="15" />
+    </function>
+    <function id="43" name="GetLocalEyePos" retID="13">
+     <parameter id="12" />
+    </function>
+    <function id="44" name="GetLocalLightDir" retID="11">
+     <parameter id="10" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+   </VfetchInfo>
+   <InterpolatorInfo>
+    <Interpolator Register="0" Semantic="0x50" Mask="xy" />
+   </InterpolatorInfo>
+   <LiteralFloats>
+    <Float Register="252" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="253" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="254" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="255" value0="0.5" value1="0" value2="0" value3="0" />
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+ </shaders>
+</shader-pdb>

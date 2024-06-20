@@ -1,0 +1,1663 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shader-pdb pdbHint="4e4a0001-f7536de5-d44da37d" version="6132">
+ <files>
+  <file id="0" path="D:\eax-build1-s09-xenon\Oban\Speed\Xenon\Src\Render\Shaders\ucap.fx" time="01c7f8c7-b1106de8">
+//
+// World Effects
+//
+
+#include "global.h"
+#include "sphericalharmonics.h"
+ 
+ 
+           
+
+// Skinning
+shared float4x4 camBlendMatrices[16]	: REG_camBlendMatrices; //BLENDMATRICES;
+
+// PCA decompression
+shared float4 cavPcaWeightsR[22]	: REG_cavPcaWeightsR; 
+shared float4 cavPcaWeightsG[22]	: REG_cavPcaWeightsG; 
+shared float4 cavPcaWeightsB[22]	: REG_cavPcaWeightsB; 
+shared float4 cavPcaWeightsX[8]		: REG_cavPcaWeightsX;  
+shared float4 cavPcaWeightsY[8]		: REG_cavPcaWeightsY; 
+shared float4 cavPcaWeightsZ[8]		: REG_cavPcaWeightsZ; 
+shared float4 cavPcaWeightsNX[8]	: REG_cavPcaWeightsNX;
+shared float4 cavPcaWeightsNY[8]	: REG_cavPcaWeightsNY;
+shared float4 cavPcaWeightsNZ[8]	: REG_cavPcaWeightsNZ;
+shared float4 cavFeatureHeights		: REG_cavFeatureHeights;
+ 
+// shading
+shared float4 cvLocalEyePos			: REG_cvLocalEyePos;
+
+shared float4	cmLocalDirectionMatrix[4]	: REG_cmLocalDirectionMatrix; // LOCALDIRECTIONMATRIX;
+shared float4	cmLocalColourMatrix[4]		: REG_cmLocalColourMatrix; //LOCALCOLOURMATRIX;
+
+static const float3	LUMINANCE_VECTOR  =	float3(0.2125f,	0.7154f, 0.0721f);
+
+// Light Material
+//
+// Unsed:
+//	Flakes.xy			Diffuse		Specular
+//	VinylScales.yz					Specular	Envmap 
+//
+shared float4	cvDiffuseMin			: REG_cvDiffuseMin;				// DIFFUSEMIN;
+shared float4	cvDiffuseRange			: REG_cvDiffuseRange;			// DIFFUSERANGE;
+shared float4	cvSpecularMin			: REG_cvSpecularMin;			// SPECULARMIN;
+shared float4	cvSpecularRange			: REG_cvSpecularRange;			// SPECULARRANGE;
+shared float4	cvEnvmapMin				: REG_cvEnvmapMin;				// ENVMAPMIN;
+shared float4	cvEnvmapRange			: REG_cvEnvmapRange;			// ENVMAPANGE;
+
+shared float4	cvPowers				: REG_cvPowers;					// xyz  = Diffuse, Specular, Envmap powers
+shared float4	cvClampAndScales		: REG_cvClampAndScales;			// xyzw = Diffuse, Envmap Clamp		zw = Diffuse, Envmap Scale
+shared float4	cvFlakes				: REG_cvFlakes;					// xy   = Diffuse, Spec Metallic Flake amounts
+shared float4	cvVinylScales			: REG_cvVinylScales;			// xyz  = Diffuse, Spec, Env lighting scale amounts
+
+
+sampler	DIFFUSE_SAMPLER = sampler_state	// this is actually the PCA component map
+{
+	AddressU = WRAP;
+	AddressV = WRAP;
+	MIPFILTER = LINEAR;
+	MINFILTER = LINEAR;
+	MAGFILTER = LINEAR;
+};
+
+sampler SPECULAR_SAMPLER = sampler_state // this is actually the specular and mask map
+{
+	AddressU = WRAP;
+	AddressV = WRAP;
+	MIPFILTER = LINEAR;
+	MINFILTER = LINEAR;
+	MAGFILTER = LINEAR;
+};
+
+sampler	DISPLACEMENT_SAMPLER = sampler_state	// this is actually the gamma-correction look-up table
+{
+	AddressU = CLAMP;
+	AddressV = CLAMP;
+	MIPFILTER = LINEAR;
+	MINFILTER = LINEAR;
+	MAGFILTER = LINEAR;
+};
+
+sampler3D VOLUMEMAP_SAMPLER = sampler_state
+{
+	AddressU  = WRAP;
+	AddressV  = WRAP;
+	AddressW  = WRAP;
+	MIPFILTER = POINT;
+	MINFILTER = POINT;
+	MAGFILTER = POINT;
+};
+
+samplerCUBE ENVIROMAP_SAMPLER = sampler_state
+{
+	AddressU  = MIRROR;
+	AddressV  = MIRROR;
+	MIPFILTER = LINEAR;
+	MINFILTER = LINEAR;
+	MAGFILTER = LINEAR;
+};
+
+
+struct VS_INPUT
+{
+	float4 position : POSITION;			// shouldn't be used, but is
+	float4 texcord	: TEXCOORD0;
+	float4 weight   : BLENDWEIGHT;
+	float4 index    : BLENDINDICES;
+	
+	// Geometry PCA components (32)
+	float4 component0	: TEXCOORD1;
+	float4 component1	: TEXCOORD2;
+	float4 component2	: TEXCOORD3;
+	float4 component3	: TEXCOORD4;
+	float4 component4	: TEXCOORD5;
+	float4 component5	: TEXCOORD6;
+	float4 component6	: TEXCOORD7;
+	float4 component7	: TEXCOORD8;
+};
+
+struct VtoP
+{
+	float4 position		: POSITION;
+	float2 texcord		: TEXCOORD0;
+	float4 reflection	: TEXCOORD1;	// xyz  = ref vector			w   = &lt;free&gt;
+	float4 diffuse		: TEXCOORD2;
+	float3 normal		: TEXCOORD3;
+
+//	float3 wposition	: TEXCOORD3;
+};
+
+float PcaDecompress(float4 weights[8], float4 components[8])
+{
+   	return	dot(weights[0], components[0]) +
+   			dot(weights[1], components[1]) +
+   			dot(weights[2], components[2]) +
+   			dot(weights[3], components[3]) +
+   			dot(weights[4], components[4]) +
+   			dot(weights[5], components[5]) +
+   			dot(weights[6], components[6]) +
+   			dot(weights[7], components[7]);
+}
+
+
+bool InWindow(float2 xy, float4 win)
+{
+	bool inwindow;
+
+	if (win.x &lt;= xy.x &amp;&amp; xy.x &lt;= win.z &amp;&amp;	// win.z = x2
+	    win.y &lt;= xy.y &amp;&amp; xy.y &lt;= win.w)		// win.w = y2
+	{
+		inwindow = true;
+	}
+	else
+	{
+		inwindow = false;
+	}
+
+	return inwindow;
+}
+
+float3 DecompressUCapTexture(sampler texSamp, float2 tc)
+{
+   	float3 base;
+
+	float faceHeight = cavFeatureHeights.x;
+	float eyesHeight = cavFeatureHeights.y;
+
+	float2 uvLower = float2(0, 0);
+	if( tc.x &lt; .25 )
+	{
+		uvLower.x = tc.x/2;
+	}
+	else if ( tc.x &lt; .75 )
+	{
+		uvLower.x = (tc.x - 0.25) + 0.25 / 2;
+	}
+	else
+	{
+		uvLower.x = ((tc.x - 0.75) / 2.0) + (320.0/512.0);
+	}
+	
+	if( tc.y &lt; 0.125 )
+	{
+		uvLower.y = tc.y/2.0;
+	}
+	else if ( tc.y &lt; 0.625 )
+	{
+		uvLower.y = (tc.y - 0.125) + 0.125/2.0;
+	}
+	else
+	{
+		uvLower.y = ((tc.y - 0.625) * 0.5) + (288.0/512.0);
+	}
+	uvLower.y = (uvLower.y / 2.0) + 0.5 + (2.0 * 64.0 / 1024.0);
+
+	float4 comp_all = tex2D(texSamp, uvLower.xy )*2 - 1;
+	base.r = dot(cavPcaWeightsR[0], comp_all);
+	base.g = dot(cavPcaWeightsG[0], comp_all);
+	base.b = dot(cavPcaWeightsB[0], comp_all);
+		
+	float4 faceWindow = float4(128.0/512.0, (faceHeight-256.0)/512.0, (128.0+256.0)/512.0, faceHeight/512.0);
+	float4 eyeWindowL = float4(172.0/512.0, (eyesHeight-64.0)/512.0, (172.0+64.0)/512.0, eyesHeight/512.0);
+	float4 eyeWindowR = float4(276.0/512.0, (eyesHeight-64.0)/512.0, (276.0+64.0)/512.0, eyesHeight/512.0);
+
+	if (InWindow(tc.xy, faceWindow))
+	{
+		float2 basetc = (tc.xy - faceWindow.xy) * float2(1, 0.5);
+		for (int i = 0; i &lt; 2; ++i)
+		{
+			float4 component = tex2D(texSamp, basetc + float2(0.0, (1-i)*0.25)) * 2 - 1;
+			base.r += dot(cavPcaWeightsR[i+1], component);
+			base.g += dot(cavPcaWeightsG[i+1], component);
+			base.b += dot(cavPcaWeightsB[i+1], component);
+		}
+		for (int i = 0; i &lt; 2; ++i)
+		{
+			float4 component = tex2D(texSamp, basetc + float2(0.5, (1-i)*0.25)) * 2 - 1;
+			base.r += dot(cavPcaWeightsR[i+1+2], component);
+			base.g += dot(cavPcaWeightsG[i+1+2], component);
+			base.b += dot(cavPcaWeightsB[i+1+2], component);
+		}
+
+		if (InWindow(tc.xy, eyeWindowL))
+		{
+			basetc = (tc.xy - eyeWindowL.xy) * float2(1, .5);
+
+			for (int i = 0; i &lt; 8; ++i)
+			{
+				float4 component = tex2D(texSamp, basetc + float2(0.75, 0.5 + (7-i) * (64.0/1024.0))) * 2 - 1;
+				base.r += dot(cavPcaWeightsR[i+1+2+2], component);
+				base.g += dot(cavPcaWeightsG[i+1+2+2], component);
+				base.b += dot(cavPcaWeightsB[i+1+2+2], component);
+			}
+			for (int i = 0; i &lt; 3; ++i)
+			{
+				float4 component = tex2D(texSamp, basetc + float2(i * (128.0/512.0), 0.5 + (64.0/1024.0))) * 2 - 1;
+				base.r += dot(cavPcaWeightsR[i+1+2+2+8], component);
+				base.g += dot(cavPcaWeightsG[i+1+2+2+8], component);
+				base.b += dot(cavPcaWeightsB[i+1+2+2+8], component);
+			}
+			for (int i = 0; i &lt; 3; ++i)
+			{
+				float4 component = tex2D(texSamp, basetc + float2(i * (128.0/512.0), 0.5)) * 2 - 1;
+				base.r += dot(cavPcaWeightsR[i+1+2+2+8+3], component);
+				base.g += dot(cavPcaWeightsG[i+1+2+2+8+3], component);
+				base.b += dot(cavPcaWeightsB[i+1+2+2+8+3], component);
+			}
+		}
+		else if (InWindow(tc.xy, eyeWindowR))
+		{
+			basetc = (tc.xy - eyeWindowR.xy) * float2(1, .5) + float2(64.0/512.0, 0.0);
+
+			for (int i = 0; i &lt; 8; ++i)
+			{
+				float4 component = tex2D(texSamp, basetc + float2(0.75, 0.5 + (7-i) * (64.0/1024.0))) * 2 - 1;
+				base.r += dot(cavPcaWeightsR[i+1+2+2], component);
+				base.g += dot(cavPcaWeightsG[i+1+2+2], component);
+				base.b += dot(cavPcaWeightsB[i+1+2+2], component);
+			}
+			for (int i = 0; i &lt; 3; ++i)
+			{
+				float4 component = tex2D(texSamp, basetc + float2(i * (128.0/512.0), 0.5 + (64.0/1024.0))) * 2 - 1;
+				base.r += dot(cavPcaWeightsR[i+1+2+2+8], component);
+				base.g += dot(cavPcaWeightsG[i+1+2+2+8], component);
+				base.b += dot(cavPcaWeightsB[i+1+2+2+8], component);
+			}
+			for (int i = 0; i &lt; 3; ++i)
+			{
+				float4 component = tex2D(texSamp, basetc + float2(i * (128.0/512.0), 0.5)) * 2 - 1;
+				base.r += dot(cavPcaWeightsR[i+1+2+2+8+3], component);
+				base.g += dot(cavPcaWeightsG[i+1+2+2+8+3], component);
+				base.b += dot(cavPcaWeightsB[i+1+2+2+8+3], component);
+			}
+		}
+	}
+
+	base = saturate(base);
+	return base;
+}
+
+VtoP vertex_shader(const VS_INPUT IN)
+{
+	// Decompress geometry
+	float4 components[8] = {
+		IN.component0, IN.component1, IN.component2, IN.component3,
+		IN.component4, IN.component5, IN.component6, IN.component7
+	};
+	
+   	float4 pcaPos;
+   	pcaPos.x = PcaDecompress(cavPcaWeightsX, components);
+   	pcaPos.y = PcaDecompress(cavPcaWeightsY, components);
+   	pcaPos.z = PcaDecompress(cavPcaWeightsZ, components);
+   	pcaPos.w = 1;
+
+   	float4 pcaNrm;
+   	pcaNrm.x = PcaDecompress(cavPcaWeightsNX, components);
+   	pcaNrm.y = PcaDecompress(cavPcaWeightsNY, components);
+   	pcaNrm.z = PcaDecompress(cavPcaWeightsNZ, components);
+   	pcaNrm.w = 0;
+	pcaNrm   = normalize(pcaNrm);
+
+	// Skin onto neck
+	float4x4 skinMatrix = camBlendMatrices[IN.index.x] * IN.weight.x +
+						  camBlendMatrices[IN.index.y] * IN.weight.y +
+						  camBlendMatrices[IN.index.z] * IN.weight.z;
+   	float4 position = mul(pcaPos, skinMatrix);
+	float3 normal   = mul(pcaNrm, skinMatrix);
+
+	// Calculate the Reflection vector
+	//float3	view_vector		= normalize(cvLocalEyePos.xyz - position.xyz);	// this is correct, but not tuned
+	float3	view_vector		= normalize(cvLocalEyePos.xyz - IN.position.xyz);	// this is wrong but tuned (worldbone also)
+
+	float3	reflection		= reflect  (view_vector, normal);		// R = 2 * (N.V) * N - V
+
+	// Fresnel-like effects on Lambertian from all lights
+	// Calcalute view direction powers for each lighting component
+	float	vdotn			= saturate( dot(view_vector, normal) );			// Range = 0.0 .. +1.0
+	float	vdotn_diffuse	= pow( vdotn, cvPowers.x   );
+
+	vdotn_diffuse			= clamp( vdotn_diffuse, 0, cvClampAndScales.x ) * cvClampAndScales.z;
+
+	VtoP OUT;
+	OUT.position	= world_position(position);
+	OUT.texcord		= IN.texcord;
+	OUT.normal		= normal;
+	OUT.reflection	= float4(-reflection, 0.0f);
+	OUT.diffuse		= cvDiffuseMin + ( vdotn_diffuse * cvDiffuseRange ); // Min - Grazing, Max - Facing
+	return OUT;
+}
+
+#include "blinn.h"
+
+float4 pixel_shader(const VtoP IN) : COLOR0
+{
+	//
+	// Decompress UCAP colour texture
+	//
+	float3	ucap_sample			= DecompressUCapTexture(DIFFUSE_SAMPLER, IN.texcord);
+	float3	ucap_colour_correct	= cvSpecularMin + cvSpecularRange;
+    
+	ucap_sample					 = pow(ucap_sample, 2.2);		// Convert texture from gamma 2.2 -&gt; linear space
+	ucap_sample					*= ucap_colour_correct.xyz;		// Apply colour correction		kenji = 0.5, 1.1, 1.1
+//	ucap_sample					*= 0.5;							// Darken
+
+	//
+	// Create masks
+	//
+	float4	maskmap				= tex2D(SPECULAR_SAMPLER, IN.texcord);
+	float	ambOcc				= maskmap.r;
+	float	eyeMask				= 0;
+	float	teethMask 			= 0;
+	
+	if (IN.texcord.y &gt; 0.5)							// Assumes that eyes are above teeth in uv space
+		teethMask				= 1 - maskmap.g;
+	else
+		eyeMask					= 1 - maskmap.g;
+	
+	float	rimMult				= maskmap.b;
+	float	spec				= maskmap.a;
+
+	//float3	sh_light_colour		= EvaluateSphericalHarmonic( IN.normal ); // NdotL (Lambertian) from all lights in the scene
+
+	float3 n = normalize(IN.normal.xyz);
+	float3	diff_colour0		= cmLocalColourMatrix[0].xyz * pow(saturate( dot( cmLocalDirectionMatrix[0].xyz, n) ), 1.5);
+	float3	diff_colour1		= cmLocalColourMatrix[1].xyz * pow(saturate( dot( cmLocalDirectionMatrix[1].xyz, n) ), 2);
+	float3	diff_colour2		= cmLocalColourMatrix[2].xyz * pow(saturate( dot( cmLocalDirectionMatrix[2].xyz, n) ), 1);
+	float3	diff_colour3		= cmLocalColourMatrix[3].xyz * pow(saturate( dot( cmLocalDirectionMatrix[3].xyz, n) ), 1);
+
+
+	float3	light_colour		= 0;
+//	light_colour			+= max(sh_light_colour, 0.0);
+	light_colour			+= diff_colour0;
+	light_colour			+= rimMult * diff_colour1;
+	light_colour			+= diff_colour2;
+//	light_colour			+= diff_colour3;
+
+	light_colour			/= 10;
+
+	// Diffuse Vinyl Scale control desaturates light color
+	float3	luminance		= dot( LUMINANCE_VECTOR, light_colour );
+	
+	light_colour			= lerp(luminance, light_colour, cvVinylScales.x);
+
+	//
+	// Apply diffuse &amp; specular lighting to ucap texture sample
+	//
+	float4	diffuse_colour		= IN.diffuse * float4(light_colour, 1) * 10.0 * float4(ucap_sample.rgb, 1.0f);
+
+	float3	spec_colour0		= cmLocalColourMatrix[0].xyz * cvSpecularMin;
+	float3	spec_colour1		= cmLocalColourMatrix[1].xyz * cvSpecularMin;
+	float3	spec_colour2		= cmLocalColourMatrix[2].xyz * cvSpecularMin;
+	float3	spec_colour3		= cmLocalColourMatrix[3].xyz * cvSpecularMin;
+
+	float3 r = normalize(IN.reflection.xyz);
+	float	spec_dot0			= saturate( dot( cmLocalDirectionMatrix[0].xyz, r) );
+	float	spec_dot1			= saturate( dot( cmLocalDirectionMatrix[1].xyz, r) );
+	float	spec_dot2			= saturate( dot( cmLocalDirectionMatrix[2].xyz, r) );
+	float	spec_dot3			= saturate( dot( cmLocalDirectionMatrix[3].xyz, r) );
+
+	spec_dot0					= pow( spec_dot0, cvPowers.y );
+	spec_dot1					= pow( spec_dot1, cvPowers.y );
+	spec_dot2					= pow( spec_dot2, cvPowers.y );
+	spec_dot3					= pow( spec_dot3, cvPowers.y );
+
+	spec_colour0				*= spec_dot0;			// Attenuate based on amount of light in reflection direction
+	spec_colour1				*= spec_dot1;
+	spec_colour2				*= spec_dot2;
+	spec_colour3				*= spec_dot3;
+	
+
+	spec_colour0				*= spec;				// Attenuate based on spec map
+	spec_colour1				*= spec;
+	spec_colour2				*= spec;
+	spec_colour3				*= spec;
+	
+	spec_colour0				*= ambOcc;				// Attenuate based on ambient occlusion
+	spec_colour1				*= ambOcc;
+	spec_colour2				*= ambOcc;
+	spec_colour3				*= ambOcc;
+	
+	spec_colour0				*= maskmap.g;			// Mask out the eyes &amp; teeth
+	spec_colour1				*= maskmap.g;
+	spec_colour2				*= maskmap.g;
+	spec_colour3				*= maskmap.g;
+
+
+	// Total up the final colour
+	float3	eye_sample			= ucap_sample * (cvEnvmapMin.xyz);						// colour corrected eye sample w/o lighting
+	float3	teeth_sample		= ucap_sample * (cvEnvmapMin.xyz + cvEnvmapRange.xyz);	// colour corrected teeth sample w/o lighting
+
+	teeth_sample				*= ambOcc;
+
+
+	float4 result				= diffuse_colour;
+	result.xyz					*= ambOcc;				// Ambient occlusion
+	result.xyz					*= (0.3 * spec) + 0.7;	// Modulate the diffuse a little by the spec map,
+														// helps break up the lighting
+
+	result.xyz		+= spec_colour0;		// Comment out these to remove spec from a specific light source
+//	result.xyz		+= spec_colour1;		//
+//	result.xyz		+= spec_colour2;		//
+	result.xyz		+= spec_colour3*ambOcc; //
+
+	float teethMask2 = 10 * clamp(teethMask, 0, 0.1);
+	result.xyz		*= (1-teethMask2) * (1-eyeMask);			// Remove lighting from eyes and teeth
+
+	result.xyz		+= ucap_sample * ambOcc * cvPowers.z;	// Add some colour corrected ucap texture
+	result.xyz		+= eyeMask * eye_sample;				// Add eyes
+	result.xyz		+= 4 * teethMask2 * teeth_sample;		// Add teeth
+
+	float3 lresult	= dot( LUMINANCE_VECTOR, result.xyz );
+	result.xyz		= lerp(lresult, result.xyz, cvClampAndScales.y);		// Final saturation control
+
+
+#if 0
+	result.xyz		= GammaCorrection(0.25*result.xyz);
+#else
+	result.xyz		= pow(result.xyz,1/1.7);				// linear space -&gt; gamma 2.2
+#endif
+	result.w		= 1.0;
+
+
+    //result.xyz = ucap_sample.xyz;
+    
+	return result;
+}
+
+technique main &lt;int shader = 1;&gt;
+{
+    pass p0
+    {
+        VertexShader = compile vs_1_1 vertex_shader();
+        PixelShader  = compile ps_2_0 pixel_shader();
+    }
+}
+
+</file>
+  <file id="1" path="D:\eax-build1-s09-xenon\Oban\Speed\Xenon\Src\Render\Shaders\global.h" time="01c7f8c7-b0ef0cee">#ifndef GLOBAL_H
+#define GLOBAL_H
+
+#include "registermap.h"   
+
+// Defined out for the Xbox360 - only needed on the PC
+#define DECLARE_TEXTURE(texture)	
+#define ASSIGN_TEXTURE(texture)	
+#define DECLARE_MINFILTER(default_filter)			 MINFILTER = default_filter;
+#define DECLARE_MAGFILTER(default_filter)			 MAGFILTER = default_filter;
+#define DECLARE_MIPFILTER(default_filter)			 MIPFILTER = default_filter;
+
+/////////////////////////////////////////////////////////////////////////////////////////
+float4x4	cmWorldViewProj			: REG_cmWorldViewProj; //WORLDVIEWPROJECTION ;
+float4		cvScreenOffset			: REG_cvScreenOffset; //SCREENOFFSET;
+float4		cvVertexPowerBrightness : REG_cvVertexPowerBrightness;
+
+float4 world_position( float4 screen_pos )
+{
+ 	float4 p = mul(screen_pos, cmWorldViewProj);  
+	p.xy += cvScreenOffset.xy * p.w;
+    return p;
+}
+
+float4 screen_position( float4 screen_pos )
+{
+	screen_pos.xy += cvScreenOffset.xy;
+    return screen_pos;
+}
+
+float4 CalcVertexColour(float4 colour)
+{
+	float4 result = pow(colour, cvVertexPowerBrightness.x) * cvVertexPowerBrightness.y;
+	result.w = colour.w;
+	return result;
+}
+
+float3 ScaleHeadLightIntensity(float3 colour) 
+{
+	float3 result = colour * cvVertexPowerBrightness.z;
+	return result;
+}
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////
+// HDR Colour Space compression
+//
+// Convert to a log or psudeo-log colour space to save high dynamic range data
+/////////////////////////////////////////////////////////////////////////////////////////
+#define kCompressCoeff ( 1.0f )
+float3 CompressColourSpace(float3 colour)
+{
+	return colour / (kCompressCoeff+colour);
+}
+
+float3 DeCompressColourSpace(float3 colour)
+{
+	return colour / (kCompressCoeff-colour);
+}
+
+
+/////////////////////////////////////////////////////////////////////////////////////////
+// RGBE8 Encoding/Decoding
+// The RGBE8 format stores a mantissa per color channel and a shared exponent 
+// stored in alpha. Since the exponent is shared, it's computed based on the
+// highest intensity color component. The resulting color is RGB * 2^Alpha,
+// which scales the data across a logarithmic scale.
+/////////////////////////////////////////////////////////////////////////////////////////
+
+float4 EncodeRGBE8( in float3 rgb )	  
+{
+	float4 vEncoded;
+
+    // Determine the largest color component
+	float maxComponent = max( max(rgb.r, rgb.g), rgb.b );
+	
+	// Round to the nearest integer exponent
+	float fExp = ceil( log2(maxComponent) );
+
+    // Divide the components by the shared exponent
+	vEncoded.rgb = rgb / exp2(fExp);
+	
+	// Store the shared exponent in the alpha channel
+	vEncoded.a = (fExp + 128) / 255;
+
+	return vEncoded;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+float3 DecodeRGBE8( in float4 rgbe )
+{
+	float3 vDecoded;
+
+    // Retrieve the shared exponent
+	float fExp = rgbe.a * 255 - 128;
+	
+	// Multiply through the color components
+	vDecoded = rgbe.rgb * exp2(fExp);
+	
+	return vDecoded;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+#endif</file>
+  <file id="2" path="D:\eax-build1-s09-xenon\Oban\Speed\Xenon\Src\Render\Shaders\registermap.h" time="01c7f8c7-b0d997bb">
+// ------------------------------------------------------------------------------------------------------------------------------------------
+
+#define CONSTANT_RESERVED_DO_NOT_USE			(0)		/* 4 vectors [c0,c3] */
+
+// ------------------------------------------------------------------------------------------------------------------------------------------
+
+#define REG_RESERVED_DO_NOT_USE			register(c0)	/* 4 vectors [c0,c3] */
+
+#define REG_cmWorldMat					register(c4)	/* 4 vectors [c0,c3] */
+#define REG_cmWorldMatTranspose			register(c8)	/* 4 vectors [c4,c7] */
+#define REG_cmWorldView					register(c12)	/* 4 vectors [c8,c11] */
+#define REG_cmShadowMapWVP				register(c16)	/* 4 vectors [c12,c15] */
+#define REG_cmLightWVP					register(c20)	/* 4 vectors [c16,c19] */
+#define REG_cmWorldViewProj				register(c24)	/* 4 vectors [c20,c23] */
+#define REG_cmPrevWorldViewProj			register(c28)	/* 4 vectors [c24,c27] */
+#define REG_cvLocalEyePos				register(c32)	/* 1 vecotr	 [c32] */
+#define REG_cvLocalLightVec				register(c33)	/* 1 vecotr	 [c33] */
+#define REG_cfSkyDomeRotation			register(c34)	/* 1 vecotr	 [c34] */
+
+#define REG_cmLocalColourMatrix			register(c36)	/* 4 vectors [c36,c39] */
+#define REG_cmLocalDirectionMatrix		register(c40)	/* 4 vectors [c40,c43] */
+#define REG_cmLocalPositionMatrix		register(c44)	/* 4 vectors [c44,c47] */
+#define REG_cavHarmonicCoeff			register(c48)	/* 10 floats, 3 vectors, 1 pad vector [48,51] */
+
+#define REG_camBlendMatrices			register(c52)	/* 16 vectors [c52,c67] */
+#define REG_cavWorldHeadlightDirection	register(c68)	/* 2 vectors [c68,c69] */
+#define REG_cavWorldHeadlightPosition	register(c70)	/* 2 vectors [c70,c71] */
+#define REG_cavWorldHeadlightUpDirection register(c72)	/* 2 vectors [c72,c73] */
+
+#define REG_cmShadowMapVP				register(c68) // note clash with head light
+#define REG_cmShadowMapBiasMatrix		register(c72)	/* 4 vectors [c72, c75] */
+
+
+
+#define REG_cvWorldSunColour			register(c79)
+#define REG_cvWorldAmbientColour		register(c80)
+
+// available: [c82,c115] (but would alias cavPcaWeightsR and cavPcaWeightsG)
+// PCA/UCap parameters (ucap.fx, water.fx)
+#define REG_cafPcaMean					register(c81)	/* 1 vector */
+#define REG_cavPcaWeightsR				register(c82)	/* 22 vectors [c82,c103] */
+#define REG_cavPcaWeightsG				register(c104)	/* 22 vectors [c104,c125] */
+#define REG_cavPcaWeightsB				register(c126)	/* 22 vectors [c126,c147] */
+#define REG_cavPcaWeightsX				register(c148)	/* 8 vectors [c148,c155] */
+#define REG_cavPcaWeightsY				register(c156)	/* 8 vectors [c156,c163] */
+#define REG_cavPcaWeightsZ				register(c164)	/* 8 vectors [c164,c171] */
+#define REG_cavPcaWeightsNX				register(c172)	/* 8 vectors [c172,c179] */
+#define REG_cavPcaWeightsNY				register(c180)	/* 8 vectors [c180,c187] */
+#define REG_cavPcaWeightsNZ				register(c188)	/* 8 vectors [c188,c195] */
+#define REG_cavFeatureHeights			register(c196)	/* 1 vector */
+
+
+// The following parameters alias cavPcaWeightsG:
+#define REG_cfMipMapBias				register(c116)
+#define REG_cfBrightness				register(c117)
+#define REG_cfSurfaceReflection			register(c118)
+#define REG_cfRainIntensity				register(c119)
+#define REG_cfSpecularPower				register(c120)
+#define REG_cfMetallicScale				register(c121)
+#define REG_cfEnvmapPullAmount			register(c122)
+#define REG_cfEnvmapPower				register(c123)
+#define REG_PAD2						register(c125)
+
+// The following parameters alias cavPcaWeightsB:
+#define REG_cfCombinedBrightness		register(c126)
+#define REG_cvVisualEffectFadeColour	register(c127)	/* also aliases cfSkyAlphaTag */
+#define REG_cfSkyAlphaTag				register(c127)	/* also aliases cvVisualEffectFadeColour */
+#define REG_cfShadowVolumeOffset		register(c128)
+#define REG_cfRVMWorldBrightness		register(c129)
+#define REG_cfDesaturation				register(c130)
+#define REG_cfBloomScale				register(c131)
+#define REG_cfSplitScreenUVScale		register(c132)
+#define REG_cfColourCubeFilterBlend		register(c133)
+#define REG_cfTimeTicker				register(c134)
+#define REG_cfMiddleGray				register(c135)
+#define REG_cfBrightPassThreshold		register(c136)
+
+#define REG_cvScreenOffset				register(c137)
+#define REG_cvFog_Br_Plus_Bm			register(c138)
+#define REG_cvFog_One_Over_BrBm			register(c139)
+#define REG_cvFog_Const_1				register(c140)
+#define REG_cvFog_Const_2				register(c141)
+#define REG_cvFog_Const_3				register(c142)
+#define REG_cvAmbientColour				register(c143)
+#define REG_cvShadowParams0				register(c144)
+#define REG_cvShadowParams1				register(c145)
+
+
+// The following parameters alias cavPcaWeightsX:
+#define REG_cvDiffuseColour				register(c148)
+#define REG_cvSpecularColour			register(c149)
+// available: [c150,c155] (but would alias cavPcaWeightsX)
+
+// The following parameters alias cavPcaWeightsY:
+#define REG_cvShadowColour				register(c156)
+#define REG_cvTextureOffset				register(c161)
+#define REG_cvLocalCenter				register(c162)
+#define REG_cvTreeParams				register(c163)
+
+// The following parameters alias cavPcaWeightsZ:
+#define REG_cvBaseAlphaRef				register(c164)
+#define REG_cvCloudIntensity			register(c165)
+#define REG_cvLocalLightPos				register(c166)
+#define REG_cvPixelizationScale			register(c167)
+#define REG_cvGrassColour				register(c169)
+
+// The following parameters alias cavPcaWeightsNX:
+#define REG_cvDepthOfFieldParams		register(c172)	/* aliases cavFeatureHeights */
+#define REG_cvBlurParams				register(c173)
+// The following parameters alias cavPcaWeightsNX and cavPcaWeightsNY:
+#define REG_cavSampleOffsetWeights		register(c174)	/* 16 vectors [c174,c189] */
+
+#define REG_PAD0						register(c190)	/* free space!! */
+
+#define REG_cvFogValue					register(c206)
+#define REG_cvFogColour					register(c207)
+#define REG_cfSkyFogFalloff				register(c208)
+#define REG_cfLightMapVertColBlend		register(c209)
+
+#define REG_cvLightColour				register(c210)
+#define REG_cvLightPosition				register(c211)
+
+#define REG_cvLightDirection			register(c212)
+#define REG_cfShadowMapEnabled			register(c213)
+#define REG_cfVSMEnabled				register(c214)
+#define REG_cfReceiveShadow				register(c215)
+
+#define REG_cvVertexPowerBrightness		register(c216)
+
+#define REG_cfFogEnable					register(c240)
+
+
+
+// Light Material Registers - alias REG_cavLightDirections
+
+#define REG_cvDiffuseMin				register(c228)
+#define REG_cvDiffuseRange				register(c229)
+#define REG_cvEnvmapMin					register(c230)
+#define REG_cvEnvmapRange				register(c231)
+#define REG_cvSpecularMin				register(c232)
+#define REG_cvSpecularRange				register(c233)
+#define REG_cvSpecular1Min				register(c234)
+#define REG_cvSpecular1Range			register(c235)
+#define REG_cvPowers					register(c236)
+#define REG_cvClampAndScales			register(c237)
+#define REG_cvFlakes					register(c238)
+#define REG_cvVinylScales				register(c239)
+
+#define	REG_cvGradientParams            register(c240)
+#define	REG_cvGradientColour            register(c241)
+#define	REG_cvGradientColourE           register(c242)
+#define	REG_ScreenRez                  	register(c243)
+#define REG_cfScaleUVs					register(c244)
+
+// for the constants heavy shader instancing
+// 4 vectors, c4 to c7
+#define REG_cmInstanceVP					register(c4)
+#define REG_cvInstanceData					register(c8)
+#define REG_cvInstanceWorldSunPosition		register(c9)
+#define REG_cvInstanceWorldSunColour		register(c10)
+#define REG_cvInstanceWorldAmbientColour	register(c11)
+#define REG_cvInstancedFogColour			register(c12)
+#define REG_cvInstancedFogValue				register(c13)
+#define REG_cvInstanceArray					register(c14)
+
+
+// Aliased With Light Materials ...
+
+#define REG_cfDrawDepthOfField			register(c230)
+
+
+#define REG_ciVSMEnabled				register(c)
+#define REG_ciShadowMapPCFLevel			register(c)
+#define REG_ciShadowMapAlphaEnabled		register(c)
+#define REG_ciDoCarShadowMap			register(c)
+#define REG_cbIsParallexMapped			register(c)
+#define REG_cbDecompressPCA				register(c)
+
+#define REG_DIFFUSE_SAMPLER				register(c)
+#define REG_HEIGHTMAP_SAMPLER			register(c)
+#define REG_MISCMAP1_SAMPLER			register(c)
+#define REG_MISCMAP2_SAMPLER			register(c)
+#define REG_MISCMAP3_SAMPLER			register(c)
+#define REG_MISCMAP4_SAMPLER			register(c)
+#define REG_OPACITY_SAMPLER				register(c)
+#define REG_VOLUMEMAP_SAMPLER			register(c)
+#define REG_ENVIROMAP_SAMPLER			register(c)
+#define REG_NORMALMAP_SAMPLER			register(c)
+#define REG_SHADOWMAP_SAMPLER			register(c)
+#define REG_SHADOWVOLUME_COLOUR			register(c)
+#define REG_SPECULARMAP_SAMPLER			register(c)
+#define REG_PCA_COMPONENTS0_SAMPLER		register(c)
+#define REG_PCA_COMPONENTS1_SAMPLER		register(c)
+#define REG_PCA_COMPONENTS2_SAMPLER		register(c)
+#define REG_PCA_COMPONENTS3_SAMPLER		register(c)
+#define REG_HEADLIGHT_SAMPLER			register(c)
+#define REG_HEADLIGHT_CLIP_SAMPLER		register(c)
+#define REG_MIPMAP_GEN_SAMPLER			register(c)
+
+
+
+
+
+</file>
+  <file id="3" path="D:\eax-build1-s09-xenon\Oban\Speed\Xenon\Src\Render\Shaders\sphericalharmonics.h" time="01c7f8c7-b106e47c">//
+// Spherical Harmonic Lighting used be the characters and car shaders
+//
+
+shared float4 cavHarmonicCoeff[10]		: REG_cavHarmonicCoeff;
+float3 EvaluateSphericalHarmonic(float3 normal)
+{
+	float3 normalSquared	= normal*normal;
+	float3 normalCross		= float3(normal.x*normal.y, normal.z*normal.x, normal.y*normal.z);
+
+	float3 result;
+	result  = cavHarmonicCoeff[0];
+	result += cavHarmonicCoeff[1] * normalSquared.x;
+	result += cavHarmonicCoeff[2] * normalSquared.y;
+	result += cavHarmonicCoeff[3] * normalSquared.z;
+	result += cavHarmonicCoeff[4] * normalCross.x;
+	result += cavHarmonicCoeff[5] * normalCross.y;
+	result += cavHarmonicCoeff[6] * normalCross.z;
+	result += cavHarmonicCoeff[7] * normal.x;
+	result += cavHarmonicCoeff[8] * normal.y;
+	result += cavHarmonicCoeff[9] * normal.z;
+	return result;
+}
+</file>
+  <file id="4" path="D:\eax-build1-s09-xenon\Oban\Speed\Xenon\Src\Render\Shaders\blinn.h" time="01c7f8c7-b0de5c71">
+float3 Blinn(
+	float cosln,
+	float3 viewDir,
+	float3 lightDir,
+	float3 normal,
+	float eccentricity,
+	float rollOff)
+{
+	float3 specularColor = float3(0, 0, 0);
+	if( cosln &gt; 0.0f )
+	{
+		float3 halfAngleDir = normalize(lightDir + viewDir);
+
+		float coseh = dot(halfAngleDir, viewDir);
+		float cosnh = dot(halfAngleDir, normal);
+
+		// We want the range of eccentricity to go from 0-1 for
+		// 2 reasons. 1. UI looks much nicer. 2. texture mapping the value is much simpler
+        // when the effective range of this attribute runs from 0 to 1, rather than -0.765 to
+		// -2 or what ever it is otherwise. APP 09may97
+		float computedEcc = eccentricity * eccentricity - 1.0;
+
+		//
+		float denom = 1.0 + computedEcc * cosnh * cosnh;
+		float Dd;
+		Dd = (computedEcc + 1.0f) / denom;
+		Dd = Dd * Dd;
+
+		cosnh = 2 * cosnh;
+
+		float Gg;
+		float cosne = dot(viewDir, normal);
+		if (cosne &lt; cosln) 
+		{
+			Gg = (cosne*cosnh &lt; coseh) ? cosnh / coseh : 1.0f / cosne;
+		}
+		else 
+		{
+			Gg = (cosln*cosnh &lt; coseh) ? cosln * cosnh / (coseh * cosne) : 1.0f / cosne;
+		}
+		
+		// Fresnel calculation.
+		coseh = 1.0f - coseh;
+		coseh = coseh * coseh * coseh;
+		float Ff = coseh + (1.0f - coseh) * rollOff;
+
+		// Make sure that the specularCoefficient doesn't become negative.
+		float specularCoefficient = max(Dd * Gg * Ff, 0);
+		specularColor = specularCoefficient;
+	}
+
+	return specularColor;
+}
+
+float3 GammaCorrection(float3 c)
+{
+	float3 ld			= 0.002;
+	float linReference	= 0.18;
+	float logReference	= 444;
+	float logGamma		= 0.45;
+
+	//c = clamp(c, 0, 100);
+	
+	float3 corrected;
+	corrected = (log10(c/linReference)/ld*logGamma + logReference)/1023.f;
+
+	corrected = clamp(corrected, 0, 1);
+
+	float3 index = corrected*0.98 + 0.01;
+
+	float3 r = tex2D(DISPLACEMENT_SAMPLER, float2(index.r, 0.5));
+	float3 g = tex2D(DISPLACEMENT_SAMPLER, float2(index.g, 0.5));
+	float3 b = tex2D(DISPLACEMENT_SAMPLER, float2(index.b, 0.5));
+
+	corrected.r = r.r;
+	corrected.g = g.g;
+	corrected.b = b.b;
+
+	return corrected;
+}
+
+</file>
+ </files>
+ <tool name="FXLite">
+  <defines>
+   <define name="PLAT_XENON" value="" />
+  </defines>
+  <arguments>
+   <argument name="/Zi" value="false" />
+   <argument name="/Vd" value="false" />
+   <argument name="/Xu0_deprecated" value="false" />
+   <argument name="/Odu_deprecated" value="false" />
+   <argument name="/XOd_" value="false" />
+   <argument name="/XOu" value="false" />
+   <argument name="/Xmaxtempreg" value="0" />
+   <argument name="PsSampBase" value="0" />
+   <argument name="PsSampCount" value="0" />
+   <argument name="VsSampBase" value="0" />
+   <argument name="VsSampCount" value="0" />
+   <argument name="VsInstCount" value="0" />
+   <argument name="PsInstCount" value="0" />
+   <argument name="/Od" value="false" />
+   <argument name="/Zpr" value="false" />
+   <argument name="/Zpc" value="false" />
+   <argument name="/Gpp" value="false" />
+   <argument name="/Op" value="false" />
+   <argument name="/Gfa" value="false" />
+   <argument name="/Gfp" value="false" />
+   <argument name="/XZc:zeroInit" value="false" />
+   <argument name="/XVe" value="false" />
+   <argument name="/Xbe:3-" value="false" />
+   <argument name="/Xbe:1-" value="false" />
+   <argument name="/XQInomaskedexports" value="false" />
+   <argument name="/XOautoz" value="false" />
+   <argument name="/XfxAv" value="false" />
+   <argument name="/XfxAs" value="false" />
+   <argument name="/XfxPv" value="false" />
+  </arguments>
+ </tool>
+ <shaders>
+  <shader entrypoint="pixel_shader" target="ps_3_0" FxlTechniqueName="main" FxlTechnique="0" FxlPassName="p0" FxlPass="0" ZPass="0" pdbHint="4e4a0000-f7536de5-d44da37d">
+   <constanttable>
+    <constant register="s0">
+     <type name="DIFFUSE_SAMPLER" class="object" type="sampler2D" />
+    </constant>
+    <constant register="s1">
+     <type name="SPECULAR_SAMPLER" class="object" type="sampler2D" />
+    </constant>
+    <constant register="c196">
+     <type name="cavFeatureHeights" class="vector" type="float" columns="4" />
+    </constant>
+    <constant register="c126" count="19">
+     <type name="cavPcaWeightsB" class="vector" type="float" columns="4" elements="22" />
+    </constant>
+    <constant register="c104" count="19">
+     <type name="cavPcaWeightsG" class="vector" type="float" columns="4" elements="22" />
+    </constant>
+    <constant register="c82" count="19">
+     <type name="cavPcaWeightsR" class="vector" type="float" columns="4" elements="22" />
+    </constant>
+    <constant register="c36" count="4">
+     <type name="cmLocalColourMatrix" class="vector" type="float" columns="4" elements="4" />
+    </constant>
+    <constant register="c40" count="4">
+     <type name="cmLocalDirectionMatrix" class="vector" type="float" columns="4" elements="4" />
+    </constant>
+    <constant register="c237">
+     <type name="cvClampAndScales" class="vector" type="float" columns="4" />
+    </constant>
+    <constant register="c230">
+     <type name="cvEnvmapMin" class="vector" type="float" columns="4" />
+    </constant>
+    <constant register="c231">
+     <type name="cvEnvmapRange" class="vector" type="float" columns="4" />
+    </constant>
+    <constant register="c236">
+     <type name="cvPowers" class="vector" type="float" columns="4" />
+    </constant>
+    <constant register="c232">
+     <type name="cvSpecularMin" class="vector" type="float" columns="4" />
+    </constant>
+    <constant register="c233">
+     <type name="cvSpecularRange" class="vector" type="float" columns="4" />
+    </constant>
+    <constant register="c239">
+     <type name="cvVinylScales" class="vector" type="float" columns="4" />
+    </constant>
+   </constanttable>
+   <sourcemap>
+    <statement pc="29" file="0" line="170" scope="-1" lastinstruction="0" />
+    <statement pc="30" file="0" line="174" scope="-1" lastinstruction="0" />
+    <statement pc="31" file="0" line="178" scope="-1" lastinstruction="0" />
+    <statement pc="32" file="0" line="172" scope="-1" lastinstruction="0" />
+    <statement pc="33" file="0" line="178" scope="-1" lastinstruction="0" />
+    <statement pc="36" file="0" line="193" scope="-1" lastinstruction="0" />
+    <statement pc="37" file="0" line="195" scope="-1" lastinstruction="0" />
+    <statement pc="38" file="0" line="201" scope="-1" lastinstruction="0" />
+    <statement pc="39" file="0" line="147" scope="-1" lastinstruction="0" />
+    <statement pc="40" file="0" line="147" scope="-1" lastinstruction="0" />
+    <statement pc="41" file="0" line="148" scope="-1" lastinstruction="0" />
+    <statement pc="42" file="0" line="195" scope="-1" lastinstruction="0" />
+    <statement pc="43" file="0" line="196" scope="-1" lastinstruction="0" />
+    <statement pc="44" file="0" line="197" scope="-1" lastinstruction="0" />
+    <statement pc="45" file="0" line="198" scope="-1" lastinstruction="0" />
+    <statement pc="46" file="0" line="148" scope="-1" lastinstruction="0" />
+    <statement pc="47" file="0" line="148" scope="-1" lastinstruction="0" />
+    <statement pc="48" file="0" line="148" scope="-1" lastinstruction="0" />
+    <statement pc="49" file="0" line="148" scope="-1" lastinstruction="0" />
+    <statement pc="51" file="0" line="204" scope="-1" lastinstruction="0" />
+    <statement pc="52" file="0" line="206" scope="-1" lastinstruction="0" />
+    <statement pc="53" file="0" line="206" scope="-1" lastinstruction="0" />
+    <statement pc="54" file="0" line="209" scope="-1" lastinstruction="0" />
+    <statement pc="55" file="0" line="216" scope="-1" lastinstruction="0" />
+    <statement pc="56" file="0" line="216" scope="-1" lastinstruction="0" />
+    <statement pc="57" file="0" line="209" scope="-1" lastinstruction="0" />
+    <statement pc="58" file="0" line="209" scope="-1" lastinstruction="0" />
+    <statement pc="59" file="0" line="148" scope="-1" lastinstruction="0" />
+    <statement pc="60" file="0" line="147" scope="-1" lastinstruction="0" />
+    <statement pc="61" file="0" line="147" scope="-1" lastinstruction="0" />
+    <statement pc="62" file="0" line="209" scope="-1" lastinstruction="0" />
+    <statement pc="63" file="0" line="209" scope="-1" lastinstruction="0" />
+    <statement pc="64" file="0" line="216" scope="-1" lastinstruction="0" />
+    <statement pc="65" file="0" line="216" scope="-1" lastinstruction="0" />
+    <statement pc="66" file="0" line="218" scope="-1" lastinstruction="0" />
+    <statement pc="67" file="0" line="217" scope="-1" lastinstruction="0" />
+    <statement pc="68" file="0" line="219" scope="-1" lastinstruction="0" />
+    <statement pc="69" file="0" line="217" scope="-1" lastinstruction="0" />
+    <statement pc="70" file="0" line="218" scope="-1" lastinstruction="0" />
+    <statement pc="71" file="0" line="219" scope="-1" lastinstruction="0" />
+    <statement pc="72" file="0" line="212" scope="-1" lastinstruction="0" />
+    <statement pc="73" file="0" line="211" scope="-1" lastinstruction="0" />
+    <statement pc="74" file="0" line="210" scope="-1" lastinstruction="0" />
+    <statement pc="75" file="0" line="212" scope="-1" lastinstruction="0" />
+    <statement pc="76" file="0" line="211" scope="-1" lastinstruction="0" />
+    <statement pc="77" file="0" line="148" scope="-1" lastinstruction="0" />
+    <statement pc="78" file="0" line="148" scope="-1" lastinstruction="0" />
+    <statement pc="79" file="0" line="210" scope="-1" lastinstruction="0" />
+    <statement pc="80" file="0" line="212" scope="-1" lastinstruction="0" />
+    <statement pc="81" file="0" line="212" scope="-1" lastinstruction="0" />
+    <statement pc="83" file="0" line="217" scope="-1" lastinstruction="0" />
+    <statement pc="84" file="0" line="218" scope="-1" lastinstruction="0" />
+    <statement pc="85" file="0" line="222" scope="-1" lastinstruction="0" />
+    <statement pc="87" file="0" line="235" scope="-1" lastinstruction="0" />
+    <statement pc="88" file="0" line="224" scope="-1" lastinstruction="0" />
+    <statement pc="89" file="0" line="242" scope="-1" lastinstruction="0" />
+    <statement pc="90" file="0" line="228" scope="-1" lastinstruction="0" />
+    <statement pc="91" file="0" line="228" scope="-1" lastinstruction="0" />
+    <statement pc="92" file="0" line="228" scope="-1" lastinstruction="0" />
+    <statement pc="93" file="0" line="224" scope="-1" lastinstruction="0" />
+    <statement pc="94" file="0" line="228" scope="-1" lastinstruction="0" />
+    <statement pc="95" file="0" line="228" scope="-1" lastinstruction="0" />
+    <statement pc="96" file="0" line="228" scope="-1" lastinstruction="0" />
+    <statement pc="97" file="0" line="228" scope="-1" lastinstruction="0" />
+    <statement pc="98" file="0" line="235" scope="-1" lastinstruction="0" />
+    <statement pc="99" file="0" line="235" scope="-1" lastinstruction="0" />
+    <statement pc="100" file="0" line="242" scope="-1" lastinstruction="0" />
+    <statement pc="101" file="0" line="242" scope="-1" lastinstruction="0" />
+    <statement pc="102" file="0" line="242" scope="-1" lastinstruction="0" />
+    <statement pc="103" file="0" line="242" scope="-1" lastinstruction="0" />
+    <statement pc="104" file="0" line="235" scope="-1" lastinstruction="0" />
+    <statement pc="105" file="0" line="235" scope="-1" lastinstruction="0" />
+    <statement pc="106" file="0" line="235" scope="-1" lastinstruction="0" />
+    <statement pc="107" file="0" line="228" scope="-1" lastinstruction="0" />
+    <statement pc="108" file="0" line="228" scope="-1" lastinstruction="0" />
+    <statement pc="109" file="0" line="228" scope="-1" lastinstruction="0" />
+    <statement pc="110" file="0" line="228" scope="-1" lastinstruction="0" />
+    <statement pc="111" file="0" line="228" scope="-1" lastinstruction="0" />
+    <statement pc="112" file="0" line="228" scope="-1" lastinstruction="0" />
+    <statement pc="113" file="0" line="228" scope="-1" lastinstruction="0" />
+    <statement pc="114" file="0" line="228" scope="-1" lastinstruction="0" />
+    <statement pc="115" file="0" line="228" scope="-1" lastinstruction="0" />
+    <statement pc="116" file="0" line="228" scope="-1" lastinstruction="0" />
+    <statement pc="117" file="0" line="228" scope="-1" lastinstruction="0" />
+    <statement pc="118" file="0" line="228" scope="-1" lastinstruction="0" />
+    <statement pc="119" file="0" line="228" scope="-1" lastinstruction="0" />
+    <statement pc="120" file="0" line="228" scope="-1" lastinstruction="0" />
+    <statement pc="121" file="0" line="228" scope="-1" lastinstruction="0" />
+    <statement pc="122" file="0" line="228" scope="-1" lastinstruction="0" />
+    <statement pc="123" file="0" line="235" scope="-1" lastinstruction="0" />
+    <statement pc="124" file="0" line="235" scope="-1" lastinstruction="0" />
+    <statement pc="125" file="0" line="235" scope="-1" lastinstruction="0" />
+    <statement pc="126" file="0" line="242" scope="-1" lastinstruction="0" />
+    <statement pc="127" file="0" line="242" scope="-1" lastinstruction="0" />
+    <statement pc="128" file="0" line="242" scope="-1" lastinstruction="0" />
+    <statement pc="129" file="0" line="244" scope="-1" lastinstruction="0" />
+    <statement pc="130" file="0" line="243" scope="-1" lastinstruction="0" />
+    <statement pc="131" file="0" line="245" scope="-1" lastinstruction="0" />
+    <statement pc="132" file="0" line="243" scope="-1" lastinstruction="0" />
+    <statement pc="133" file="0" line="244" scope="-1" lastinstruction="0" />
+    <statement pc="134" file="0" line="245" scope="-1" lastinstruction="0" />
+    <statement pc="135" file="0" line="244" scope="-1" lastinstruction="0" />
+    <statement pc="136" file="0" line="243" scope="-1" lastinstruction="0" />
+    <statement pc="137" file="0" line="245" scope="-1" lastinstruction="0" />
+    <statement pc="138" file="0" line="236" scope="-1" lastinstruction="0" />
+    <statement pc="139" file="0" line="237" scope="-1" lastinstruction="0" />
+    <statement pc="140" file="0" line="238" scope="-1" lastinstruction="0" />
+    <statement pc="141" file="0" line="237" scope="-1" lastinstruction="0" />
+    <statement pc="142" file="0" line="236" scope="-1" lastinstruction="0" />
+    <statement pc="143" file="0" line="238" scope="-1" lastinstruction="0" />
+    <statement pc="144" file="0" line="236" scope="-1" lastinstruction="0" />
+    <statement pc="145" file="0" line="237" scope="-1" lastinstruction="0" />
+    <statement pc="146" file="0" line="238" scope="-1" lastinstruction="0" />
+    <statement pc="147" file="0" line="230" scope="-1" lastinstruction="0" />
+    <statement pc="148" file="0" line="229" scope="-1" lastinstruction="0" />
+    <statement pc="149" file="0" line="231" scope="-1" lastinstruction="0" />
+    <statement pc="150" file="0" line="229" scope="-1" lastinstruction="0" />
+    <statement pc="151" file="0" line="230" scope="-1" lastinstruction="0" />
+    <statement pc="152" file="0" line="231" scope="-1" lastinstruction="0" />
+    <statement pc="153" file="0" line="230" scope="-1" lastinstruction="0" />
+    <statement pc="154" file="0" line="229" scope="-1" lastinstruction="0" />
+    <statement pc="155" file="0" line="231" scope="-1" lastinstruction="0" />
+    <statement pc="156" file="0" line="229" scope="-1" lastinstruction="0" />
+    <statement pc="157" file="0" line="230" scope="-1" lastinstruction="0" />
+    <statement pc="158" file="0" line="231" scope="-1" lastinstruction="0" />
+    <statement pc="159" file="0" line="230" scope="-1" lastinstruction="0" />
+    <statement pc="160" file="0" line="229" scope="-1" lastinstruction="0" />
+    <statement pc="161" file="0" line="231" scope="-1" lastinstruction="0" />
+    <statement pc="162" file="0" line="229" scope="-1" lastinstruction="0" />
+    <statement pc="163" file="0" line="230" scope="-1" lastinstruction="0" />
+    <statement pc="164" file="0" line="231" scope="-1" lastinstruction="0" />
+    <statement pc="165" file="0" line="231" scope="-1" lastinstruction="0" />
+    <statement pc="166" file="0" line="230" scope="-1" lastinstruction="0" />
+    <statement pc="167" file="0" line="229" scope="-1" lastinstruction="0" />
+    <statement pc="168" file="0" line="231" scope="-1" lastinstruction="0" />
+    <statement pc="169" file="0" line="230" scope="-1" lastinstruction="0" />
+    <statement pc="170" file="0" line="229" scope="-1" lastinstruction="0" />
+    <statement pc="171" file="0" line="231" scope="-1" lastinstruction="0" />
+    <statement pc="172" file="0" line="231" scope="-1" lastinstruction="0" />
+    <statement pc="173" file="0" line="229" scope="-1" lastinstruction="0" />
+    <statement pc="174" file="0" line="230" scope="-1" lastinstruction="0" />
+    <statement pc="175" file="0" line="229" scope="-1" lastinstruction="0" />
+    <statement pc="176" file="0" line="230" scope="-1" lastinstruction="0" />
+    <statement pc="177" file="0" line="229" scope="-1" lastinstruction="0" />
+    <statement pc="178" file="0" line="230" scope="-1" lastinstruction="0" />
+    <statement pc="179" file="0" line="236" scope="-1" lastinstruction="0" />
+    <statement pc="180" file="0" line="237" scope="-1" lastinstruction="0" />
+    <statement pc="181" file="0" line="236" scope="-1" lastinstruction="0" />
+    <statement pc="182" file="0" line="244" scope="-1" lastinstruction="0" />
+    <statement pc="183" file="0" line="243" scope="-1" lastinstruction="0" />
+    <statement pc="184" file="0" line="244" scope="-1" lastinstruction="0" />
+    <statement pc="186" file="0" line="147" scope="-1" lastinstruction="0" />
+    <statement pc="187" file="0" line="147" scope="-1" lastinstruction="0" />
+    <statement pc="188" file="0" line="147" scope="-1" lastinstruction="0" />
+    <statement pc="189" file="0" line="147" scope="-1" lastinstruction="0" />
+    <statement pc="190" file="0" line="148" scope="-1" lastinstruction="0" />
+    <statement pc="191" file="0" line="148" scope="-1" lastinstruction="0" />
+    <statement pc="192" file="0" line="148" scope="-1" lastinstruction="0" />
+    <statement pc="194" file="0" line="248" scope="-1" lastinstruction="0" />
+    <statement pc="195" file="0" line="261" scope="-1" lastinstruction="0" />
+    <statement pc="196" file="0" line="250" scope="-1" lastinstruction="0" />
+    <statement pc="197" file="0" line="268" scope="-1" lastinstruction="0" />
+    <statement pc="198" file="0" line="254" scope="-1" lastinstruction="0" />
+    <statement pc="199" file="0" line="254" scope="-1" lastinstruction="0" />
+    <statement pc="200" file="0" line="254" scope="-1" lastinstruction="0" />
+    <statement pc="201" file="0" line="250" scope="-1" lastinstruction="0" />
+    <statement pc="202" file="0" line="254" scope="-1" lastinstruction="0" />
+    <statement pc="203" file="0" line="254" scope="-1" lastinstruction="0" />
+    <statement pc="204" file="0" line="254" scope="-1" lastinstruction="0" />
+    <statement pc="205" file="0" line="254" scope="-1" lastinstruction="0" />
+    <statement pc="206" file="0" line="261" scope="-1" lastinstruction="0" />
+    <statement pc="207" file="0" line="261" scope="-1" lastinstruction="0" />
+    <statement pc="208" file="0" line="268" scope="-1" lastinstruction="0" />
+    <statement pc="209" file="0" line="268" scope="-1" lastinstruction="0" />
+    <statement pc="210" file="0" line="268" scope="-1" lastinstruction="0" />
+    <statement pc="211" file="0" line="268" scope="-1" lastinstruction="0" />
+    <statement pc="212" file="0" line="261" scope="-1" lastinstruction="0" />
+    <statement pc="213" file="0" line="261" scope="-1" lastinstruction="0" />
+    <statement pc="214" file="0" line="261" scope="-1" lastinstruction="0" />
+    <statement pc="215" file="0" line="254" scope="-1" lastinstruction="0" />
+    <statement pc="216" file="0" line="254" scope="-1" lastinstruction="0" />
+    <statement pc="217" file="0" line="254" scope="-1" lastinstruction="0" />
+    <statement pc="218" file="0" line="254" scope="-1" lastinstruction="0" />
+    <statement pc="219" file="0" line="254" scope="-1" lastinstruction="0" />
+    <statement pc="220" file="0" line="254" scope="-1" lastinstruction="0" />
+    <statement pc="221" file="0" line="254" scope="-1" lastinstruction="0" />
+    <statement pc="222" file="0" line="254" scope="-1" lastinstruction="0" />
+    <statement pc="223" file="0" line="254" scope="-1" lastinstruction="0" />
+    <statement pc="224" file="0" line="254" scope="-1" lastinstruction="0" />
+    <statement pc="225" file="0" line="254" scope="-1" lastinstruction="0" />
+    <statement pc="226" file="0" line="254" scope="-1" lastinstruction="0" />
+    <statement pc="227" file="0" line="254" scope="-1" lastinstruction="0" />
+    <statement pc="228" file="0" line="254" scope="-1" lastinstruction="0" />
+    <statement pc="229" file="0" line="254" scope="-1" lastinstruction="0" />
+    <statement pc="230" file="0" line="254" scope="-1" lastinstruction="0" />
+    <statement pc="231" file="0" line="261" scope="-1" lastinstruction="0" />
+    <statement pc="232" file="0" line="261" scope="-1" lastinstruction="0" />
+    <statement pc="233" file="0" line="261" scope="-1" lastinstruction="0" />
+    <statement pc="234" file="0" line="268" scope="-1" lastinstruction="0" />
+    <statement pc="235" file="0" line="268" scope="-1" lastinstruction="0" />
+    <statement pc="236" file="0" line="268" scope="-1" lastinstruction="0" />
+    <statement pc="237" file="0" line="270" scope="-1" lastinstruction="0" />
+    <statement pc="238" file="0" line="269" scope="-1" lastinstruction="0" />
+    <statement pc="239" file="0" line="271" scope="-1" lastinstruction="0" />
+    <statement pc="240" file="0" line="269" scope="-1" lastinstruction="0" />
+    <statement pc="241" file="0" line="270" scope="-1" lastinstruction="0" />
+    <statement pc="242" file="0" line="271" scope="-1" lastinstruction="0" />
+    <statement pc="243" file="0" line="270" scope="-1" lastinstruction="0" />
+    <statement pc="244" file="0" line="269" scope="-1" lastinstruction="0" />
+    <statement pc="245" file="0" line="271" scope="-1" lastinstruction="0" />
+    <statement pc="246" file="0" line="262" scope="-1" lastinstruction="0" />
+    <statement pc="247" file="0" line="263" scope="-1" lastinstruction="0" />
+    <statement pc="248" file="0" line="264" scope="-1" lastinstruction="0" />
+    <statement pc="249" file="0" line="263" scope="-1" lastinstruction="0" />
+    <statement pc="250" file="0" line="262" scope="-1" lastinstruction="0" />
+    <statement pc="251" file="0" line="264" scope="-1" lastinstruction="0" />
+    <statement pc="252" file="0" line="262" scope="-1" lastinstruction="0" />
+    <statement pc="253" file="0" line="263" scope="-1" lastinstruction="0" />
+    <statement pc="254" file="0" line="264" scope="-1" lastinstruction="0" />
+    <statement pc="255" file="0" line="256" scope="-1" lastinstruction="0" />
+    <statement pc="256" file="0" line="255" scope="-1" lastinstruction="0" />
+    <statement pc="257" file="0" line="257" scope="-1" lastinstruction="0" />
+    <statement pc="258" file="0" line="255" scope="-1" lastinstruction="0" />
+    <statement pc="259" file="0" line="256" scope="-1" lastinstruction="0" />
+    <statement pc="260" file="0" line="257" scope="-1" lastinstruction="0" />
+    <statement pc="261" file="0" line="256" scope="-1" lastinstruction="0" />
+    <statement pc="262" file="0" line="255" scope="-1" lastinstruction="0" />
+    <statement pc="263" file="0" line="257" scope="-1" lastinstruction="0" />
+    <statement pc="264" file="0" line="255" scope="-1" lastinstruction="0" />
+    <statement pc="265" file="0" line="256" scope="-1" lastinstruction="0" />
+    <statement pc="266" file="0" line="257" scope="-1" lastinstruction="0" />
+    <statement pc="267" file="0" line="256" scope="-1" lastinstruction="0" />
+    <statement pc="268" file="0" line="255" scope="-1" lastinstruction="0" />
+    <statement pc="269" file="0" line="257" scope="-1" lastinstruction="0" />
+    <statement pc="270" file="0" line="255" scope="-1" lastinstruction="0" />
+    <statement pc="271" file="0" line="256" scope="-1" lastinstruction="0" />
+    <statement pc="272" file="0" line="257" scope="-1" lastinstruction="0" />
+    <statement pc="273" file="0" line="257" scope="-1" lastinstruction="0" />
+    <statement pc="274" file="0" line="256" scope="-1" lastinstruction="0" />
+    <statement pc="275" file="0" line="255" scope="-1" lastinstruction="0" />
+    <statement pc="276" file="0" line="257" scope="-1" lastinstruction="0" />
+    <statement pc="277" file="0" line="256" scope="-1" lastinstruction="0" />
+    <statement pc="278" file="0" line="255" scope="-1" lastinstruction="0" />
+    <statement pc="279" file="0" line="257" scope="-1" lastinstruction="0" />
+    <statement pc="280" file="0" line="257" scope="-1" lastinstruction="0" />
+    <statement pc="281" file="0" line="255" scope="-1" lastinstruction="0" />
+    <statement pc="282" file="0" line="256" scope="-1" lastinstruction="0" />
+    <statement pc="283" file="0" line="255" scope="-1" lastinstruction="0" />
+    <statement pc="284" file="0" line="256" scope="-1" lastinstruction="0" />
+    <statement pc="285" file="0" line="255" scope="-1" lastinstruction="0" />
+    <statement pc="286" file="0" line="256" scope="-1" lastinstruction="0" />
+    <statement pc="287" file="0" line="262" scope="-1" lastinstruction="0" />
+    <statement pc="288" file="0" line="263" scope="-1" lastinstruction="0" />
+    <statement pc="289" file="0" line="262" scope="-1" lastinstruction="0" />
+    <statement pc="290" file="0" line="270" scope="-1" lastinstruction="0" />
+    <statement pc="291" file="0" line="269" scope="-1" lastinstruction="0" />
+    <statement pc="292" file="0" line="270" scope="-1" lastinstruction="0" />
+    <statement pc="293" file="0" line="347" scope="-1" lastinstruction="0" />
+    <statement pc="22.1" file="0" line="347" scope="-1" lastinstruction="0" />
+    <statement pc="294" file="0" line="388" scope="-1" lastinstruction="0" />
+    <statement pc="295" file="0" line="428" scope="-1" lastinstruction="0" />
+    <statement pc="296" file="0" line="391" scope="-1" lastinstruction="0" />
+    <statement pc="297" file="0" line="338" scope="-1" lastinstruction="0" />
+    <statement pc="298" file="0" line="352" scope="-1" lastinstruction="0" />
+    <statement pc="299" file="0" line="435" scope="-1" lastinstruction="0" />
+    <statement pc="300" file="0" line="393" scope="-1" lastinstruction="0" />
+    <statement pc="301" file="0" line="362" scope="-1" lastinstruction="0" />
+    <statement pc="302" file="0" line="355" scope="-1" lastinstruction="0" />
+    <statement pc="305" file="0" line="443" scope="-1" lastinstruction="0" />
+    <statement pc="306" file="0" line="362" scope="-1" lastinstruction="0" />
+    <statement pc="307" file="0" line="393" scope="-1" lastinstruction="0" />
+    <statement pc="308" file="0" line="394" scope="-1" lastinstruction="0" />
+    <statement pc="309" file="0" line="443" scope="-1" lastinstruction="0" />
+    <statement pc="310" file="0" line="363" scope="-1" lastinstruction="0" />
+    <statement pc="311" file="0" line="340" scope="-1" lastinstruction="0" />
+    <statement pc="312" file="0" line="365" scope="-1" lastinstruction="0" />
+    <statement pc="313" file="0" line="397" scope="-1" lastinstruction="0" />
+    <statement pc="314" file="0" line="364" scope="-1" lastinstruction="0" />
+    <statement pc="315" file="0" line="364" scope="-1" lastinstruction="0" />
+    <statement pc="316" file="0" line="365" scope="-1" lastinstruction="0" />
+    <statement pc="317" file="0" line="364" scope="-1" lastinstruction="0" />
+    <statement pc="318" file="0" line="363" scope="-1" lastinstruction="0" />
+    <statement pc="319" file="0" line="341" scope="-1" lastinstruction="0" />
+    <statement pc="320" file="0" line="446" scope="-1" lastinstruction="0" />
+    <statement pc="321" file="0" line="407" scope="-1" lastinstruction="0" />
+    <statement pc="322" file="0" line="428" scope="-1" lastinstruction="0" />
+    <statement pc="323" file="0" line="430" scope="-1" lastinstruction="0" />
+    <statement pc="324" file="0" line="363" scope="-1" lastinstruction="0" />
+    <statement pc="325" file="0" line="413" scope="-1" lastinstruction="0" />
+    <statement pc="326" file="0" line="399" scope="-1" lastinstruction="0" />
+    <statement pc="327" file="0" line="418" scope="-1" lastinstruction="0" />
+    <statement pc="328" file="0" line="381" scope="-1" lastinstruction="0" />
+    <statement pc="329" file="0" line="376" scope="-1" lastinstruction="0" />
+    <statement pc="330" file="0" line="423" scope="-1" lastinstruction="0" />
+    <statement pc="331" file="0" line="448" scope="-1" lastinstruction="0" />
+    <statement pc="332" file="0" line="381" scope="-1" lastinstruction="0" />
+    <statement pc="333" file="0" line="404" scope="-1" lastinstruction="0" />
+    <statement pc="334" file="0" line="410" scope="-1" lastinstruction="0" />
+    <statement pc="335" file="0" line="386" scope="-1" lastinstruction="0" />
+    <statement pc="336" file="0" line="386" scope="-1" lastinstruction="0" />
+    <statement pc="337" file="0" line="415" scope="-1" lastinstruction="0" />
+    <statement pc="338" file="0" line="435" scope="-1" lastinstruction="0" />
+    <statement pc="339" file="0" line="386" scope="-1" lastinstruction="0" />
+    <statement pc="340" file="0" line="434" scope="-1" lastinstruction="0" />
+    <statement pc="341" file="0" line="435" scope="-1" lastinstruction="0" />
+    <statement pc="342" file="0" line="444" scope="-1" lastinstruction="0" />
+    <statement pc="343" file="0" line="447" scope="-1" lastinstruction="0" />
+    <statement pc="344" file="0" line="448" scope="-1" lastinstruction="0" />
+    <statement pc="345" file="0" line="451" scope="-1" lastinstruction="0" />
+    <statement pc="346" file="0" line="451" scope="-1" lastinstruction="0" />
+    <statement pc="347" file="0" line="451" scope="-1" lastinstruction="0" />
+    <statement pc="348" file="0" line="457" scope="-1" lastinstruction="0" />
+    <statement pc="349" file="0" line="457" scope="-1" lastinstruction="0" />
+    <statement pc="350" file="0" line="457" scope="-1" lastinstruction="0" />
+    <statement pc="351" file="0" line="457" scope="-1" lastinstruction="0" />
+    <statement pc="352" file="0" line="457" scope="-1" lastinstruction="0" />
+    <statement pc="353" file="0" line="457" scope="-1" lastinstruction="0" />
+    <statement pc="354" file="0" line="457" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="pixel_shader" retID="160">
+     <parameter id="159" />
+    </function>
+    <function id="1" name="GammaCorrection" retID="149">
+     <parameter id="148" />
+    </function>
+    <function id="2" name="Blinn" retID="136">
+     <parameter id="130" />
+     <parameter id="131" />
+     <parameter id="132" />
+     <parameter id="133" />
+     <parameter id="134" />
+     <parameter id="135" />
+    </function>
+    <function id="3" name="vertex_shader" retID="118">
+     <parameter id="117" />
+    </function>
+    <function id="4" name="DecompressUCapTexture" retID="91">
+     <parameter id="89" />
+     <parameter id="90" />
+    </function>
+    <function id="5" name="InWindow" retID="87">
+     <parameter id="85" />
+     <parameter id="86" />
+    </function>
+    <function id="6" name="PcaDecompress" retID="84">
+     <parameter id="82" />
+     <parameter id="83" />
+    </function>
+    <function id="7" name="EvaluateSphericalHarmonic" retID="29">
+     <parameter id="28" />
+    </function>
+    <function id="8" name="DecodeRGBE8" retID="24">
+     <parameter id="23" />
+    </function>
+    <function id="9" name="EncodeRGBE8" retID="19">
+     <parameter id="18" />
+    </function>
+    <function id="10" name="DeCompressColourSpace" retID="17">
+     <parameter id="16" />
+    </function>
+    <function id="11" name="CompressColourSpace" retID="15">
+     <parameter id="14" />
+    </function>
+    <function id="12" name="ScaleHeadLightIntensity" retID="12">
+     <parameter id="11" />
+    </function>
+    <function id="13" name="CalcVertexColour" retID="9">
+     <parameter id="8" />
+    </function>
+    <function id="14" name="screen_position" retID="7">
+     <parameter id="6" />
+    </function>
+    <function id="15" name="world_position" retID="4">
+     <parameter id="3" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+   </VfetchInfo>
+   <InterpolatorInfo>
+    <Interpolator Register="0" Semantic="0x50" Mask="xy" />
+    <Interpolator Register="1" Semantic="0x51" Mask="xyzw" />
+    <Interpolator Register="2" Semantic="0x52" Mask="xyzw" />
+    <Interpolator Register="3" Semantic="0x53" Mask="xyz" />
+   </InterpolatorInfo>
+   <LiteralFloats>
+    <Float Register="244" value0="0.4609375" value1="0.69999999" value2="0.30000001" value3="0" />
+    <Float Register="245" value0="0.1640625" value1="0.3359375" value2="0.4140625" value3="0.875" />
+    <Float Register="246" value0="-0.0859375" value1="0.9375" value2="0.6640625" value3="-0.1640625" />
+    <Float Register="247" value0="2.2" value1="-0.4140625" value2="0.6875" value3="0.58823532" />
+    <Float Register="248" value0="2" value1="0.0859375" value2="0.001953125" value3="-1" />
+    <Float Register="249" value0="-0.75" value1="-0.625" value2="-64" value3="-256" />
+    <Float Register="250" value0="1" value1="0" value2="0.25" value3="0.5" />
+    <Float Register="251" value0="0.5625" value1="0.625" value2="-0.125" value3="-0.0625" />
+    <Float Register="252" value0="0.072099999" value1="0.21250001" value2="0.71539998" value3="0.8125" />
+    <Float Register="253" value0="1.5" value1="40" value2="10" value3="0.5390625" />
+    <Float Register="254" value0="0.00721" value1="0.02125" value2="0.071539998" value3="0.1" />
+    <Float Register="255" value0="0.75" value1="0.25" value2="0.625" value3="0.125" />
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+  <shader entrypoint="vertex_shader" target="vs_3_0" FxlTechniqueName="main" FxlTechnique="0" FxlPassName="p0" FxlPass="0" ZPass="0" pdbHint="4e4a0001-f7536de5-d44da37d">
+   <constanttable>
+    <constant register="c52" count="64">
+     <type name="camBlendMatrices" class="matrix_columns" type="float" rows="4" columns="4" elements="16" />
+    </constant>
+    <constant register="c172" count="8">
+     <type name="cavPcaWeightsNX" class="vector" type="float" columns="4" elements="8" />
+    </constant>
+    <constant register="c180" count="8">
+     <type name="cavPcaWeightsNY" class="vector" type="float" columns="4" elements="8" />
+    </constant>
+    <constant register="c188" count="8">
+     <type name="cavPcaWeightsNZ" class="vector" type="float" columns="4" elements="8" />
+    </constant>
+    <constant register="c148" count="8">
+     <type name="cavPcaWeightsX" class="vector" type="float" columns="4" elements="8" />
+    </constant>
+    <constant register="c156" count="8">
+     <type name="cavPcaWeightsY" class="vector" type="float" columns="4" elements="8" />
+    </constant>
+    <constant register="c164" count="8">
+     <type name="cavPcaWeightsZ" class="vector" type="float" columns="4" elements="8" />
+    </constant>
+    <constant register="c24" count="4">
+     <type name="cmWorldViewProj" class="matrix_columns" type="float" rows="4" columns="4" />
+    </constant>
+    <constant register="c237">
+     <type name="cvClampAndScales" class="vector" type="float" columns="4" />
+    </constant>
+    <constant register="c228">
+     <type name="cvDiffuseMin" class="vector" type="float" columns="4" />
+    </constant>
+    <constant register="c229">
+     <type name="cvDiffuseRange" class="vector" type="float" columns="4" />
+    </constant>
+    <constant register="c32">
+     <type name="cvLocalEyePos" class="vector" type="float" columns="4" />
+    </constant>
+    <constant register="c236">
+     <type name="cvPowers" class="vector" type="float" columns="4" />
+    </constant>
+    <constant register="c137">
+     <type name="cvScreenOffset" class="vector" type="float" columns="4" />
+    </constant>
+   </constanttable>
+   <sourcemap>
+    <statement pc="12" file="0" line="280" scope="-1" lastinstruction="0" />
+    <statement pc="13" file="0" line="280" scope="-1" lastinstruction="0" />
+    <statement pc="14" file="0" line="280" scope="-1" lastinstruction="0" />
+    <statement pc="15" file="0" line="280" scope="-1" lastinstruction="0" />
+    <statement pc="16" file="0" line="280" scope="-1" lastinstruction="0" />
+    <statement pc="17" file="0" line="280" scope="-1" lastinstruction="0" />
+    <statement pc="18" file="0" line="280" scope="-1" lastinstruction="0" />
+    <statement pc="19" file="0" line="280" scope="-1" lastinstruction="0" />
+    <statement pc="20" file="0" line="280" scope="-1" lastinstruction="0" />
+    <statement pc="21" file="0" line="280" scope="-1" lastinstruction="0" />
+    <statement pc="22" file="0" line="280" scope="-1" lastinstruction="0" />
+    <statement pc="23" file="0" line="280" scope="-1" lastinstruction="0" />
+    <statement pc="1.0" file="0" line="280" scope="-1" lastinstruction="0" />
+    <statement pc="24" file="0" line="134" scope="-1" lastinstruction="0" />
+    <statement pc="25" file="0" line="133" scope="-1" lastinstruction="0" />
+    <statement pc="26" file="0" line="136" scope="-1" lastinstruction="0" />
+    <statement pc="27" file="0" line="136" scope="-1" lastinstruction="0" />
+    <statement pc="28" file="0" line="136" scope="-1" lastinstruction="0" />
+    <statement pc="29" file="0" line="133" scope="-1" lastinstruction="0" />
+    <statement pc="30" file="0" line="135" scope="-1" lastinstruction="0" />
+    <statement pc="31" file="0" line="135" scope="-1" lastinstruction="0" />
+    <statement pc="32" file="0" line="135" scope="-1" lastinstruction="0" />
+    <statement pc="33" file="0" line="134" scope="-1" lastinstruction="0" />
+    <statement pc="34" file="0" line="134" scope="-1" lastinstruction="0" />
+    <statement pc="35" file="0" line="134" scope="-1" lastinstruction="0" />
+    <statement pc="36" file="0" line="133" scope="-1" lastinstruction="0" />
+    <statement pc="37" file="0" line="133" scope="-1" lastinstruction="0" />
+    <statement pc="38" file="0" line="133" scope="-1" lastinstruction="0" />
+    <statement pc="39" file="0" line="133" scope="-1" lastinstruction="0" />
+    <statement pc="40" file="0" line="133" scope="-1" lastinstruction="0" />
+    <statement pc="41" file="0" line="133" scope="-1" lastinstruction="0" />
+    <statement pc="42" file="0" line="302" scope="-1" lastinstruction="0" />
+    <statement pc="43" file="0" line="304" scope="-1" lastinstruction="0" />
+    <statement pc="44" file="0" line="133" scope="-1" lastinstruction="0" />
+    <statement pc="45" file="0" line="304" scope="-1" lastinstruction="0" />
+    <statement pc="46" file="0" line="304" scope="-1" lastinstruction="0" />
+    <statement pc="47" file="0" line="304" scope="-1" lastinstruction="0" />
+    <statement pc="48" file="0" line="304" scope="-1" lastinstruction="0" />
+    <statement pc="49" file="0" line="134" scope="-1" lastinstruction="0" />
+    <statement pc="50" file="0" line="302" scope="-1" lastinstruction="0" />
+    <statement pc="51" file="0" line="302" scope="-1" lastinstruction="0" />
+    <statement pc="52" file="0" line="302" scope="-1" lastinstruction="0" />
+    <statement pc="53" file="0" line="302" scope="-1" lastinstruction="0" />
+    <statement pc="54" file="0" line="135" scope="-1" lastinstruction="0" />
+    <statement pc="55" file="0" line="302" scope="-1" lastinstruction="0" />
+    <statement pc="56" file="0" line="302" scope="-1" lastinstruction="0" />
+    <statement pc="57" file="0" line="302" scope="-1" lastinstruction="0" />
+    <statement pc="58" file="0" line="302" scope="-1" lastinstruction="0" />
+    <statement pc="59" file="0" line="136" scope="-1" lastinstruction="0" />
+    <statement pc="60" file="0" line="134" scope="-1" lastinstruction="0" />
+    <statement pc="61" file="0" line="138" scope="-1" lastinstruction="0" />
+    <statement pc="62" file="0" line="138" scope="-1" lastinstruction="0" />
+    <statement pc="63" file="0" line="137" scope="-1" lastinstruction="0" />
+    <statement pc="64" file="0" line="137" scope="-1" lastinstruction="0" />
+    <statement pc="65" file="0" line="136" scope="-1" lastinstruction="0" />
+    <statement pc="66" file="0" line="136" scope="-1" lastinstruction="0" />
+    <statement pc="67" file="0" line="138" scope="-1" lastinstruction="0" />
+    <statement pc="68" file="0" line="137" scope="-1" lastinstruction="0" />
+    <statement pc="69" file="0" line="135" scope="-1" lastinstruction="0" />
+    <statement pc="70" file="0" line="135" scope="-1" lastinstruction="0" />
+    <statement pc="71" file="0" line="136" scope="-1" lastinstruction="0" />
+    <statement pc="72" file="0" line="134" scope="-1" lastinstruction="0" />
+    <statement pc="73" file="0" line="133" scope="-1" lastinstruction="0" />
+    <statement pc="74" file="0" line="135" scope="-1" lastinstruction="0" />
+    <statement pc="75" file="0" line="133" scope="-1" lastinstruction="0" />
+    <statement pc="76" file="0" line="139" scope="-1" lastinstruction="0" />
+    <statement pc="77" file="0" line="139" scope="-1" lastinstruction="0" />
+    <statement pc="78" file="0" line="139" scope="-1" lastinstruction="0" />
+    <statement pc="79" file="0" line="134" scope="-1" lastinstruction="0" />
+    <statement pc="80" file="0" line="133" scope="-1" lastinstruction="0" />
+    <statement pc="81" file="0" line="138" scope="-1" lastinstruction="0" />
+    <statement pc="82" file="0" line="138" scope="-1" lastinstruction="0" />
+    <statement pc="83" file="0" line="138" scope="-1" lastinstruction="0" />
+    <statement pc="84" file="0" line="133" scope="-1" lastinstruction="0" />
+    <statement pc="85" file="0" line="137" scope="-1" lastinstruction="0" />
+    <statement pc="86" file="0" line="137" scope="-1" lastinstruction="0" />
+    <statement pc="87" file="0" line="137" scope="-1" lastinstruction="0" />
+    <statement pc="88" file="0" line="137" scope="-1" lastinstruction="0" />
+    <statement pc="89" file="0" line="138" scope="-1" lastinstruction="0" />
+    <statement pc="90" file="0" line="139" scope="-1" lastinstruction="0" />
+    <statement pc="91" file="0" line="305" scope="-1" lastinstruction="0" />
+    <statement pc="92" file="0" line="305" scope="-1" lastinstruction="0" />
+    <statement pc="93" file="0" line="305" scope="-1" lastinstruction="0" />
+    <statement pc="94" file="0" line="305" scope="-1" lastinstruction="0" />
+    <statement pc="95" file="0" line="135" scope="-1" lastinstruction="0" />
+    <statement pc="96" file="1" line="20" scope="-1" lastinstruction="0" />
+    <statement pc="97" file="1" line="21" scope="-1" lastinstruction="0" />
+    <statement pc="98" file="1" line="21" scope="-1" lastinstruction="0" />
+    <statement pc="99" file="1" line="20" scope="-1" lastinstruction="0" />
+    <statement pc="100" file="0" line="137" scope="-1" lastinstruction="0" />
+    <statement pc="101" file="0" line="136" scope="-1" lastinstruction="0" />
+    <statement pc="102" file="0" line="137" scope="-1" lastinstruction="0" />
+    <statement pc="103" file="0" line="299" scope="-1" lastinstruction="0" />
+    <statement pc="104" file="0" line="299" scope="-1" lastinstruction="0" />
+    <statement pc="105" file="0" line="327" scope="-1" lastinstruction="0" />
+    <statement pc="8.1" file="0" line="327" scope="-1" lastinstruction="0" />
+    <statement pc="106" file="0" line="139" scope="-1" lastinstruction="0" />
+    <statement pc="107" file="0" line="139" scope="-1" lastinstruction="0" />
+    <statement pc="108" file="0" line="310" scope="-1" lastinstruction="0" />
+    <statement pc="109" file="0" line="139" scope="-1" lastinstruction="0" />
+    <statement pc="110" file="0" line="310" scope="-1" lastinstruction="0" />
+    <statement pc="111" file="0" line="139" scope="-1" lastinstruction="0" />
+    <statement pc="112" file="0" line="299" scope="-1" lastinstruction="0" />
+    <statement pc="113" file="0" line="327" scope="-1" lastinstruction="0" />
+    <statement pc="114" file="0" line="310" scope="-1" lastinstruction="0" />
+    <statement pc="115" file="0" line="299" scope="-1" lastinstruction="0" />
+    <statement pc="116" file="0" line="306" scope="-1" lastinstruction="0" />
+    <statement pc="117" file="0" line="306" scope="-1" lastinstruction="0" />
+    <statement pc="118" file="0" line="306" scope="-1" lastinstruction="0" />
+    <statement pc="119" file="0" line="327" scope="-1" lastinstruction="0" />
+    <statement pc="120" file="0" line="312" scope="-1" lastinstruction="0" />
+    <statement pc="121" file="0" line="312" scope="-1" lastinstruction="0" />
+    <statement pc="122" file="0" line="312" scope="-1" lastinstruction="0" />
+    <statement pc="123" file="0" line="317" scope="-1" lastinstruction="0" />
+    <statement pc="124" file="0" line="317" scope="-1" lastinstruction="0" />
+    <statement pc="125" file="0" line="319" scope="-1" lastinstruction="0" />
+    <statement pc="126" file="0" line="319" scope="-1" lastinstruction="0" />
+    <statement pc="127" file="0" line="319" scope="-1" lastinstruction="0" />
+    <statement pc="128" file="0" line="326" scope="-1" lastinstruction="0" />
+    <statement pc="129" file="0" line="326" scope="-1" lastinstruction="0" />
+    <statement pc="130" file="0" line="326" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="pixel_shader" retID="160">
+     <parameter id="159" />
+    </function>
+    <function id="1" name="GammaCorrection" retID="149">
+     <parameter id="148" />
+    </function>
+    <function id="2" name="Blinn" retID="136">
+     <parameter id="130" />
+     <parameter id="131" />
+     <parameter id="132" />
+     <parameter id="133" />
+     <parameter id="134" />
+     <parameter id="135" />
+    </function>
+    <function id="3" name="vertex_shader" retID="118">
+     <parameter id="117" />
+    </function>
+    <function id="4" name="DecompressUCapTexture" retID="91">
+     <parameter id="89" />
+     <parameter id="90" />
+    </function>
+    <function id="5" name="InWindow" retID="87">
+     <parameter id="85" />
+     <parameter id="86" />
+    </function>
+    <function id="6" name="PcaDecompress" retID="84">
+     <parameter id="82" />
+     <parameter id="83" />
+    </function>
+    <function id="7" name="EvaluateSphericalHarmonic" retID="29">
+     <parameter id="28" />
+    </function>
+    <function id="8" name="DecodeRGBE8" retID="24">
+     <parameter id="23" />
+    </function>
+    <function id="9" name="EncodeRGBE8" retID="19">
+     <parameter id="18" />
+    </function>
+    <function id="10" name="DeCompressColourSpace" retID="17">
+     <parameter id="16" />
+    </function>
+    <function id="11" name="CompressColourSpace" retID="15">
+     <parameter id="14" />
+    </function>
+    <function id="12" name="ScaleHeadLightIntensity" retID="12">
+     <parameter id="11" />
+    </function>
+    <function id="13" name="CalcVertexColour" retID="9">
+     <parameter id="8" />
+    </function>
+    <function id="14" name="screen_position" retID="7">
+     <parameter id="6" />
+    </function>
+    <function id="15" name="world_position" retID="4">
+     <parameter id="3" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+    <vfetch Address="12" Register="8" DestSwizzle="xyz_" Semantic="0x00" End="false" />
+    <vfetch Address="13" Register="6" DestSwizzle="xy__" Semantic="0x50" End="false" />
+    <vfetch Address="14" Register="0" DestSwizzle="_xyz" Semantic="0x10" End="false" />
+    <vfetch Address="15" Register="4" DestSwizzle="xyz_" Semantic="0x20" End="false" />
+    <vfetch Address="16" Register="16" DestSwizzle="xyzw" Semantic="0x51" End="false" />
+    <vfetch Address="17" Register="12" DestSwizzle="xyzw" Semantic="0x52" End="false" />
+    <vfetch Address="18" Register="18" DestSwizzle="xyzw" Semantic="0x53" End="false" />
+    <vfetch Address="19" Register="9" DestSwizzle="xyzw" Semantic="0x54" End="false" />
+    <vfetch Address="20" Register="19" DestSwizzle="xyzw" Semantic="0x55" End="false" />
+    <vfetch Address="21" Register="15" DestSwizzle="xyzw" Semantic="0x56" End="false" />
+    <vfetch Address="22" Register="17" DestSwizzle="xyzw" Semantic="0x57" End="false" />
+    <vfetch Address="23" Register="7" DestSwizzle="xyzw" Semantic="0x58" End="true" />
+   </VfetchInfo>
+   <InterpolatorInfo>
+    <Interpolator Register="0" Semantic="0x50" Mask="xy" />
+    <Interpolator Register="1" Semantic="0x51" Mask="xyzw" />
+    <Interpolator Register="2" Semantic="0x52" Mask="xyzw" />
+    <Interpolator Register="3" Semantic="0x53" Mask="xyz" />
+   </InterpolatorInfo>
+   <LiteralFloats>
+    <Float Register="252" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="253" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="254" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="255" value0="4" value1="0" value2="0" value3="0" />
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+ </shaders>
+</shader-pdb>

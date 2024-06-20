@@ -1,0 +1,358 @@
+//
+// World Effects
+//
+
+float4x4 WorldViewProj : WORLDVIEWPROJECTION ;
+
+float4x4 HeadlightWVP  : HEADLIGHTWVP ;
+float4x4 HeadlightClipMat : HEADLIGHTCLIPMAT;
+
+texture HeadlightTex     : HEADLIGHTTEX ;
+float4  HeadlightColor   : HEADLIGHTCOLOR ;
+texture HeadlightClipTex : HEADLIGHTCLIPTEX ;
+
+texture  ReflectedTex    : REFLECTEDTEX;
+float4x4 ReflectedProj   : REFLECTEDPROJ;
+float    ReflectedTexMin : REFLECTEDTEXMIN;
+
+shared texture diffusemap		: DiffuseMap ;
+
+shared int BaseAlphaTestEnable	: BASEALPHATESTENABLE;
+shared int BaseAlphaRef			: BASEALPHAREF;
+shared int BaseAlphaBlendEnable	: BASEALPHABLENDENABLE;
+shared int BaseSrcBlend			: BASESRCBLEND;
+shared int BaseDestBlend		: BASEDESTBLEND;
+
+sampler texture_sample = sampler_state
+{
+	texture = <diffusemap>;
+	AddressU = WRAP;
+	AddressV = WRAP;
+	MIPFILTER = LINEAR;
+	MINFILTER = LINEAR;
+	MAGFILTER = LINEAR;
+};
+
+sampler headlight_sampler = sampler_state
+{
+	texture = <HeadlightTex>;
+	AddressU = CLAMP;
+	AddressV = CLAMP;
+	MIPFILTER = LINEAR;
+	MINFILTER = LINEAR;
+	MAGFILTER = LINEAR;
+};
+
+sampler headlight_clip_sampler = sampler_state
+{
+	texture = <HeadlightClipTex>;
+	AddressU = CLAMP;
+	AddressV = CLAMP;
+	MIPFILTER = LINEAR;
+	MINFILTER = LINEAR;
+	MAGFILTER = LINEAR;
+};
+
+sampler reflected_sampler = sampler_state
+{
+	texture = <ReflectedTex>;
+	AddressU = WRAP;
+	AddressV = WRAP;
+	MIPFILTER = LINEAR;
+	MINFILTER = LINEAR;
+	MAGFILTER = LINEAR;
+};
+
+struct VS_INPUT
+{
+	float4 position : POSITION;
+	float4 color    : DIFFUSE;
+	float4 texcoord : TEXCOORD;
+};
+
+struct VtoP
+{
+	float4 position : POSITION;
+	float4 color    : COLOR0;
+	float4 t0       : TEXCOORD0;
+	float4 t1       : TEXCOORD1;
+	float4 t2       : TEXCOORD2;
+	float4 t3       : TEXCOORD3;
+};
+
+struct PS_OUTPUT
+{
+	float4 color : COLOR0;
+};
+
+VtoP vertex_shader(const VS_INPUT IN)
+{
+	VtoP OUT;
+	
+	float4 p = mul(IN.position, WorldViewProj);
+	OUT.position = p;
+	
+	float4 tp = mul(IN.position, HeadlightWVP);
+
+	OUT.t0 = IN.texcoord;
+	OUT.t1 = tp;
+
+    OUT.t2 = float4(0.0,0.0,1.0,1.0);
+    OUT.t2.x = (tp.w*0.005f)+0.5f;
+	
+	p.y=-p.y;
+	p.xy += p.w; // add "one" - texture bias
+	p.xy *= 0.5;
+	OUT.t3 = p;
+
+	OUT.color = IN.color;
+
+	return OUT;
+}
+
+PS_OUTPUT pixel_shader(const VtoP IN)
+{
+	PS_OUTPUT OUT;
+
+	float4 tex_sample = tex2D(texture_sample, IN.t0) ;
+	float4 headlight_sample = tex2D(headlight_sampler, IN.t1);
+	float4 headlight_clip_sample = tex1D(headlight_clip_sampler, IN.t2);
+	float4 reflected_sample = tex2D(reflected_sampler, IN.t3.xy);
+
+    float3 diffuse = (headlight_sample*headlight_clip_sample*HeadlightColor + IN.color) * tex_sample;
+    float3 reflect = tex_sample.w * IN.color.w * reflected_sample;
+
+	float3 output = diffuse*2+reflect;
+	OUT.color.xyz = output;
+	OUT.color.w = 1.0f;
+	
+	return OUT;
+}
+
+technique world
+{
+    pass p0
+    {
+		AlphaTestEnable = (BaseAlphaTestEnable);
+		AlphaRef = (BaseAlphaRef);
+		AlphaBlendEnable = (BaseAlphaBlendEnable);
+		SrcBlend = (BaseSrcBlend);
+		DestBlend = (BaseDestBlend);
+    
+        CullMode = NONE;
+        
+        TextureTransformFlags[1] = Projected;
+        TextureTransformFlags[2] = Projected;
+        TextureTransformFlags[3] = Projected;
+        
+        VertexShader = compile vs_1_1 vertex_shader();
+        PixelShader  = compile ps_1_1 pixel_shader();
+    }
+}
+
+technique world_fixed
+{
+	pass p0
+	{
+		AlphaTestEnable = (BaseAlphaTestEnable);
+		AlphaRef = (BaseAlphaRef);
+		AlphaBlendEnable = (BaseAlphaBlendEnable);
+		SrcBlend = (BaseSrcBlend);
+		DestBlend = (BaseDestBlend);
+	
+		CullMode = NONE;
+		Lighting=FALSE;
+
+		TEXCOORDINDEX[0]= CAMERASPACEPOSITION;
+		TEXTURETRANSFORMFLAGS[0] = PROJECTED|COUNT4 ;
+		TEXCOORDINDEX[1]= CAMERASPACEPOSITION;
+		TEXTURETRANSFORMFLAGS[1] =	PROJECTED|COUNT4;
+		TEXCOORDINDEX[3]= 0;
+		TEXTURETRANSFORMFLAGS[3] = Disable;
+		TEXCOORDINDEX[4]= CAMERASPACEPOSITION;
+		TEXTURETRANSFORMFLAGS[4] = PROJECTED|COUNT3;
+		
+		TextureTransform[0] = <HeadlightWVP>;
+		TextureTransform[1] = <HeadlightClipMat>;
+		TextureTransform[4] = <ReflectedProj>;
+
+		MIPFILTER[0] = LINEAR;
+		MINFILTER[0] = LINEAR;
+		MAGFILTER[0] = LINEAR;
+		
+		MIPFILTER[1] = LINEAR;
+		MINFILTER[1] = LINEAR;
+		MAGFILTER[1] = LINEAR;
+		
+		VertexShader = NULL;
+		PixelShader  = NULL; 
+		FVF = XYZ |DIFFUSE | TEX1 ; 
+
+		Texture[0]   = <HeadlightTex>;
+		AddressU[0]  = Clamp;
+		AddressV[0]  = Clamp;
+
+		ColorArg1[0] = Texture;
+		ColorArg2[0] = TFactor;
+		ColorOp[0]   = Modulate;
+		
+		Texture[1]   = <HeadlightClipTex>;
+		AddressU[1]  = Clamp;
+		AddressV[1]  = Clamp;
+
+		ColorArg1[1] = Texture;
+		ColorArg2[1] = Current;
+		ColorOp[1]   = Modulate;
+		
+		ColorArg1[2] = Diffuse;
+		ColorArg2[2] = Current;
+		ColorOp[2]   = Add;
+
+		AddressU[3]  = Wrap;
+		AddressV[3]  = Wrap;
+		Texture[3]   = <diffusemap>;
+		ColorArg1[3] = Texture;
+        ColorArg2[3] = Current; 
+		ColorOp[3]   = Modulate2x;
+		
+		alphaarg1[3] = Texture;
+		alphaarg2[3] = Diffuse;
+		AlphaOp[3]   = Modulate;
+		
+		Texture[4] = <ReflectedTex>;
+		AddressU[4] = Clamp;
+		AddressV[4] = Clamp;
+		
+		ColorArg1[4] = Current;
+		ColorArg2[4] = Texture;
+		ColorOp[4]   = ModulateAlpha_AddColor;
+		
+		alphaarg1[4] = Current;
+		alphaarg2[4] = Diffuse;
+		AlphaOp[4] = Disable;
+	}
+}
+
+technique world_3_pass // DLam
+{
+
+	pass DiffuseTexture
+	{
+		CullMode = NONE;
+		Lighting = FALSE;
+		VertexShader = NULL;
+		PixelShader  = NULL; 
+		FVF = XYZ | DIFFUSE | TEX1 ; 
+		ZFunc = LessEqual;
+		MIPFILTER[0] = LINEAR;
+		MINFILTER[0] = LINEAR;
+		MAGFILTER[0] = LINEAR;
+
+		AlphaTestEnable = (BaseAlphaTestEnable);
+		AlphaRef = (BaseAlphaRef);
+		AlphaBlendEnable = (BaseAlphaBlendEnable);
+		SrcBlend = (BaseSrcBlend);
+		DestBlend = (BaseDestBlend);
+
+		TexCoordIndex[0] = 0;
+		TextureTransformFlags[0] = Disable;
+		
+		Texture[0]   = <diffusemap>;
+		AddressU[0]  = Wrap;
+		AddressV[0]  = Wrap;
+
+		ColorArg1[0] = Texture;
+        ColorArg2[0] = Diffuse; 
+		ColorOp[0]   = Modulate2x;
+
+		alphaarg1[0] = Texture;
+		alphaarg2[0] = Diffuse; 
+		AlphaOp[0]   = Modulate2x;
+
+		TEXCOORDINDEX[1]= CAMERASPACEPOSITION;
+		TEXTURETRANSFORMFLAGS[1] = PROJECTED|COUNT3;
+		TextureTransform[1] = <ReflectedProj>;
+
+		Texture[1]   = <ReflectedTex>;
+		ColorArg1[1] = Current;
+		ColorArg2[1] = Texture;
+		ColorOp[1]   = ModulateAlpha_AddColor;
+		
+		AlphaOp[1] = Disable;
+	}
+	
+	pass HeadLightProjection
+	{
+		ZFunc = Equal;
+		ZWriteEnable = True;
+		
+		BlendFactor = 0x00606060;
+		AlphaTestEnable = FALSE;
+		AlphaBlendEnable = TRUE;
+		SrcBlend = 14;//BlendFactor
+		DestBlend = One;
+		
+		TextureFactor = 0x00000000;
+
+		TEXCOORDINDEX[0]= CAMERASPACEPOSITION;
+		TEXTURETRANSFORMFLAGS[0] = PROJECTED|COUNT4 ;
+		TextureTransform[0] = <HeadlightWVP>;
+		
+		Texture[0] = <HeadlightTex>;
+		AddressU[0]  = Clamp;
+		AddressV[0]  = Clamp;
+	
+		ColorArg1[0] = Texture;
+		ColorOp[0]   = SelectArg1;
+		
+		TEXCOORDINDEX[1]= CAMERASPACEPOSITION;
+		TEXTURETRANSFORMFLAGS[1] = PROJECTED|COUNT4 ;
+		TextureTransform[1] = <HeadlightClipMat>;
+		
+		Texture[1] = <HeadlightClipTex>;
+		AddressU[1]  = Clamp;
+		AddressV[1]  = Clamp;
+	
+		ColorArg1[1] = Current;
+		ColorArg2[1] = Texture;
+		ColorOp[1]   = Modulate2x;
+
+		alphaarg1[1] = TFactor;
+		AlphaOp[1] = SelectArg1;
+	}
+	
+}
+
+
+technique world_fixed_simple
+{
+	pass p0
+	{
+		CullMode = NONE;
+		Lighting=FALSE;
+		AddressU[0] = Wrap;
+		AddressV[0] = Wrap;
+		TEXCOORDINDEX[0]= PASSTHRU;
+		TEXTURETRANSFORMFLAGS[0] = Disable;
+
+		AlphaTestEnable = (BaseAlphaTestEnable);
+		AlphaRef = (BaseAlphaRef);
+		AlphaBlendEnable = (BaseAlphaBlendEnable);
+		SrcBlend = (BaseSrcBlend);
+		DestBlend = (BaseDestBlend);
+
+		MIPFILTER[0] = LINEAR;
+		MINFILTER[0] = LINEAR;
+		MAGFILTER[0] = LINEAR;
+
+		VertexShader = NULL;
+		PixelShader  = NULL; 
+		FVF = XYZ | DIFFUSE | TEX1 ; 
+		
+		Texture[0]   = <diffusemap>;
+		ColorArg1[0] = Texture;
+        ColorArg2[0] = Diffuse; 
+		ColorOp[0]   = Modulate2x;
+	}
+}
+ÿ

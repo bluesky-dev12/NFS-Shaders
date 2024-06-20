@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shader-pdb pdbHint="4e4a0000-2db35f05-a49a63ae" version="6995">
+ <files>
+  <file id="0" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Indep\Src\Render\effects\simpleeffect.bbfx" time="01c8f9c0-c77698b6">//--------------------------------------------------------------------------------------
+// Vertex Shader
+//--------------------------------------------------------------------------------------
+float4x4 viewProj;
+
+struct VS_OUTPUT
+{
+	float4 Pos : POSITION; 
+	float2 TexCoord : TEXCOORD0;
+};
+
+struct AppToVertex
+{
+	float4 Position : POSITION0;	
+	float2 TexCoord : TEXCOORD0;	
+};
+
+VS_OUTPUT VertexMain( AppToVertex IN )
+{
+	VS_OUTPUT Out = (VS_OUTPUT)0;
+	
+	Out.Pos = mul( IN.Position, viewProj );
+	Out.TexCoord = IN.TexCoord;
+	
+	return Out;
+}
+
+//--------------------------------------------------------------------------------------
+// Pixel Shader
+//--------------------------------------------------------------------------------------
+sampler2D gTexture 
+&lt;
+	string TextureSamplerState = "gTexture";
+&gt;;
+
+struct PS_INPUT
+{
+    float4 Position : POSITION;
+    float2 TexCoord : TEXCOORD0;
+};
+
+struct PS_OUTPUT
+{
+    float4 RGBColor : COLOR0;
+};
+
+PS_OUTPUT PixelMain( PS_INPUT In )
+{ 
+    PS_OUTPUT output;
+    
+    float4 color = tex2D( gTexture, In.TexCoord );
+    color.a = 1.0f;
+     
+    output.RGBColor = color;
+    
+    return output;  
+}
+
+/*
+Usage Information: This is used by the pipe, and by MAX
+STARTUSAGE:
+materialDescription: This is another simple material.
+isTranslucent: false
+texture: TEXCOORD0, MAP1, diffuse, gTexture, "diffuse", "/textures/road/defaultroaddiff.tga"
+PLATFORM: XENON
+stream0: POSITION0, float4
+stream0: TEXCOORD0, float2
+PLATFORM: PS3
+stream0: POSITION0, float4
+stream0: TEXCOORD0, float2
+PLATFORM: PC
+stream0: POSITION0, float4
+stream0: TEXCOORD0, float2
+ENDUSAGE
+*/
+
+const string MaterialClass = "Default";
+
+technique Simple
+&lt;
+	string viewtag = "DEFAULT,SHADOW";
+	string lostag = "ANY";
+&gt;
+{
+    pass P0 
+	&lt; 
+		string depthstencil = "default"; 
+		string blend = "default"; 
+		string rasterizer = "default"; 
+	&gt;
+    {   
+        VertexShader = compile vs_3_0 VertexMain();
+        PixelShader  = compile ps_3_0 PixelMain();
+    }
+}
+
+</file>
+ </files>
+ <tool name="Compiler">
+  <defines>
+   <define name="SHADER_DEBUG" value="" />
+   <define name="PLAT_XENON" value="" />
+   <define name="SHADERMODEL_3_0" value="" />
+  </defines>
+  <arguments>
+   <argument name="/Zi" value="false" />
+   <argument name="/Vd" value="false" />
+   <argument name="/Xu0_deprecated" value="false" />
+   <argument name="/Odu_deprecated" value="false" />
+   <argument name="/XOd_" value="false" />
+   <argument name="/XOu" value="false" />
+   <argument name="/Xmaxtempreg" value="0" />
+   <argument name="PsSampBase" value="0" />
+   <argument name="PsSampCount" value="0" />
+   <argument name="VsSampBase" value="0" />
+   <argument name="VsSampCount" value="0" />
+   <argument name="VsInstCount" value="0" />
+   <argument name="PsInstCount" value="0" />
+   <argument name="/Od" value="false" />
+   <argument name="/Zpr" value="true" />
+   <argument name="/Zpc" value="false" />
+   <argument name="/Gpp" value="false" />
+   <argument name="/Op" value="false" />
+   <argument name="/Gfa" value="false" />
+   <argument name="/Gfp" value="true" />
+   <argument name="/XZc:zeroInit" value="false" />
+   <argument name="/XVe" value="false" />
+   <argument name="/Xbe:3-" value="false" />
+   <argument name="/Xbe:1-" value="false" />
+   <argument name="/XQInomaskedexports" value="false" />
+   <argument name="/XOautoz" value="true" />
+  </arguments>
+ </tool>
+ <shaders>
+  <shader entrypoint="PixelMain" target="ps_3_0" ZPass="0" pdbHint="4e4a0000-2db35f05-a49a63ae">
+   <constanttable>
+    <constant register="s0">
+     <type name="gTexture" class="object" type="sampler2D" />
+    </constant>
+   </constanttable>
+   <sourcemap>
+    <statement pc="1" file="0" line="51" scope="-1" lastinstruction="0" />
+    <statement pc="2" file="0" line="56" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="PixelMain" retID="18">
+     <parameter id="17" />
+    </function>
+    <function id="1" name="VertexMain" retID="8">
+     <parameter id="7" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+   </VfetchInfo>
+   <InterpolatorInfo>
+    <Interpolator Register="0" Semantic="0x50" Mask="xy" />
+   </InterpolatorInfo>
+   <LiteralFloats>
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+ </shaders>
+</shader-pdb>

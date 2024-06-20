@@ -1,0 +1,238 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shader-pdb pdbHint="4e4a0000-dbb4b577-a1c015ad" version="6995">
+ <files>
+  <file id="0" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Indep\Src\Render\effects\simpledraw_p.bbfx" time="01c8f9c0-c77698b6">	
+//--------------------------------------------------------------------------------------
+// Output structure
+//--------------------------------------------------------------------------------------
+
+struct VS_OUTPUT
+{
+	float4 Pos : POSITION; 
+};
+
+struct PS_OUTPUT
+{
+    float4 RGBColor : COLOR0;
+};
+		
+		
+//--------------------------------------------------------------------------------------
+// Vertex shader
+//--------------------------------------------------------------------------------------
+
+float4x4 viewProj;
+
+VS_OUTPUT VertexMain( 
+in float4 Pos : POSITION &lt; int stream = 0; &gt;
+)
+{
+	VS_OUTPUT Out = (VS_OUTPUT)0;
+	
+	Out.Pos = mul( Pos, viewProj );
+	
+	return Out;
+}
+
+
+//--------------------------------------------------------------------------------------
+// Pixel shader
+//--------------------------------------------------------------------------------------
+
+float4 colour;
+
+PS_OUTPUT PixelMain( VS_OUTPUT In )
+{ 
+    PS_OUTPUT output;
+									 
+	output.RGBColor = colour; 
+    
+    return output;  
+}			   
+
+
+//--------------------------------------------------------------------------------------
+// BBFX
+//--------------------------------------------------------------------------------------
+
+/*
+Usage Information: This is used by the pipe, and by MAX
+STARTUSAGE:
+materialDescription: This is a simple material containing only positions.
+isTranslucent: false
+PLATFORM: XENON
+stream0: POSITION0, float4
+PLATFORM: PS3
+stream0: POSITION0, float4
+PLATFORM: PC
+stream0: POSITION0, float4
+ENDUSAGE
+*/
+
+const string MaterialClass = "Default";
+
+technique Simple
+&lt;
+	string viewtag = "ANY";
+	string lostag = "ANY";
+&gt;
+{
+    pass SimplePass
+	&lt; 
+		string depthstencil = "default"; 
+		string blend = "default"; 
+		string rasterizer = "default"; 
+	&gt;
+    {   
+        VertexShader = compile vs_2_0 VertexMain();
+        PixelShader  = compile ps_2_0 PixelMain();
+    }
+    
+    pass FEDefault 
+	&lt; 
+		string depthstencil = "no_zwrite"; 
+		string blend = "blend"; 
+		string rasterizer = "double_sided"; 
+	&gt;
+    {   
+        VertexShader = compile vs_2_0 VertexMain();
+        PixelShader  = compile ps_2_0 PixelMain();
+    }
+    pass FEStencilAdd 
+	&lt; 
+		string depthstencil = "stencil_add"; 
+		string blend = "no_colour"; 
+		string rasterizer = "double_sided"; 
+	&gt;
+    {   
+        VertexShader = compile vs_2_0 VertexMain();
+        PixelShader  = compile ps_2_0 PixelMain();
+    }
+    pass FEStencilSub
+	&lt; 
+		string depthstencil = "stencil_sub"; 
+		string blend = "no_colour"; 
+		string rasterizer = "double_sided"; 
+	&gt;
+    {   
+        VertexShader = compile vs_2_0 VertexMain();
+        PixelShader  = compile ps_2_0 PixelMain();
+    }
+    pass FEStencilTest
+	&lt; 
+		string depthstencil = "stencil_test"; 
+		string blend = "blend"; 
+		string rasterizer = "double_sided"; 
+	&gt;
+    {   
+        VertexShader = compile vs_2_0 VertexMain();
+        PixelShader  = compile ps_2_0 PixelMain();
+    }
+    pass Additive
+	&lt; 
+		string depthstencil = "no_zwrite"; 
+		string blend = "add"; 
+		string rasterizer = "double_sided"; 
+	&gt;
+    {   
+        VertexShader = compile vs_2_0 VertexMain();
+        PixelShader  = compile ps_2_0 PixelMain();
+    }
+    pass AddAlphaBlended
+	&lt; 
+		string depthstencil = "default"; 
+		string blend = "add_alpha_blended"; 
+		string rasterizer = "double_sided"; 
+	&gt;
+    {   
+        VertexShader = compile vs_2_0 VertexMain();
+        PixelShader  = compile ps_2_0 PixelMain();
+    }
+    pass LetterBoxPass
+	&lt; 
+		string depthstencil = "no_depth"; 
+		string blend = "blend"; 
+		string rasterizer = "default"; 
+	&gt;
+    {   
+        VertexShader = compile vs_2_0 VertexMain();
+        PixelShader  = compile ps_2_0 PixelMain();
+    }
+}
+
+</file>
+ </files>
+ <tool name="Compiler">
+  <defines>
+   <define name="SHADER_DEBUG" value="" />
+   <define name="PLAT_XENON" value="" />
+   <define name="SHADERMODEL_3_0" value="" />
+  </defines>
+  <arguments>
+   <argument name="/Zi" value="false" />
+   <argument name="/Vd" value="false" />
+   <argument name="/Xu0_deprecated" value="false" />
+   <argument name="/Odu_deprecated" value="false" />
+   <argument name="/XOd_" value="false" />
+   <argument name="/XOu" value="false" />
+   <argument name="/Xmaxtempreg" value="0" />
+   <argument name="PsSampBase" value="0" />
+   <argument name="PsSampCount" value="0" />
+   <argument name="VsSampBase" value="0" />
+   <argument name="VsSampCount" value="0" />
+   <argument name="VsInstCount" value="0" />
+   <argument name="PsInstCount" value="0" />
+   <argument name="/Od" value="false" />
+   <argument name="/Zpr" value="true" />
+   <argument name="/Zpc" value="false" />
+   <argument name="/Gpp" value="false" />
+   <argument name="/Op" value="false" />
+   <argument name="/Gfa" value="false" />
+   <argument name="/Gfp" value="true" />
+   <argument name="/XZc:zeroInit" value="false" />
+   <argument name="/XVe" value="false" />
+   <argument name="/Xbe:3-" value="false" />
+   <argument name="/Xbe:1-" value="false" />
+   <argument name="/XQInomaskedexports" value="false" />
+   <argument name="/XOautoz" value="true" />
+  </arguments>
+ </tool>
+ <shaders>
+  <shader entrypoint="PixelMain" target="ps_3_0" ZPass="0" pdbHint="4e4a0000-dbb4b577-a1c015ad">
+   <constanttable>
+    <constant register="c0">
+     <type name="colour" class="vector" type="float" columns="4" />
+    </constant>
+   </constanttable>
+   <sourcemap>
+    <statement pc="1" file="0" line="47" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="PixelMain" retID="11">
+     <parameter id="10" />
+    </function>
+    <function id="1" name="VertexMain" retID="7">
+     <parameter id="6" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+   </VfetchInfo>
+   <InterpolatorInfo>
+   </InterpolatorInfo>
+   <LiteralFloats>
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+ </shaders>
+</shader-pdb>

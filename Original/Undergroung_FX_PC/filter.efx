@@ -1,0 +1,195 @@
+float4  FilterWeights[4]    : FILTERWEIGHTS;
+float4  FilterOffsets[4]    : FILTEROFFSETS;
+texture FilterTexture0      : FILTERTEXTURE0;
+texture FilterTexture1      : FILTERTEXTURE1;
+texture FilterTexture2      : FILTERTEXTURE2;
+texture FilterTexture3      : FILTERTEXTURE3;
+
+//shared texture diffusemap		: DiffuseMap ;
+shared int BaseAlphaTestEnable	: BASEALPHATESTENABLE;
+shared int BaseAlphaRef			: BASEALPHAREF;
+shared int BaseAlphaBlendEnable	: BASEALPHABLENDENABLE;
+shared int BaseSrcBlend			: BASESRCBLEND;
+shared int BaseDestBlend		: BASEDESTBLEND;
+
+sampler filter_sampler0 = sampler_state
+{
+    texture = <FilterTexture0>;
+    AddressU = CLAMP;
+    AddressV = CLAMP;
+    MINFILTER = LINEAR;    
+    MAGFILTER = LINEAR;    
+};
+
+sampler filter_sampler1 = sampler_state
+{
+    texture = <FilterTexture1>;
+    AddressU = CLAMP;
+    AddressV = CLAMP;
+    MINFILTER = LINEAR;    
+    MAGFILTER = LINEAR;    
+};
+
+sampler filter_sampler2 = sampler_state
+{
+    texture = <FilterTexture2>;
+    AddressU = CLAMP;
+    AddressV = CLAMP;
+    MINFILTER = LINEAR;    
+    MAGFILTER = LINEAR;    
+};
+
+sampler filter_sampler3 = sampler_state
+{
+    texture = <FilterTexture3>;
+    AddressU = CLAMP;
+    AddressV = CLAMP;
+    MINFILTER = LINEAR;    
+    MAGFILTER = LINEAR;    
+};
+
+struct VS_INPUT
+{
+	float4 position : POSITION;
+	float4 color    : COLOR;
+	float2 tex0     : TEXCOORD0;
+	float2 tex1     : TEXCOORD1;
+	float2 tex2     : TEXCOORD2;
+	float2 tex3     : TEXCOORD3;
+};
+
+struct VtoP
+{
+	float4 position : POSITION;
+	float2 tex0     : TEXCOORD0;
+	float2 tex1     : TEXCOORD1;
+	float2 tex2     : TEXCOORD2;
+	float2 tex3     : TEXCOORD3;
+	
+	float  fog      : FOG;
+};
+
+struct PS_OUTPUT
+{
+	float4 color : COLOR0;
+};
+
+VtoP vertex_shader(const VS_INPUT IN)
+{
+	VtoP OUT;
+	float4 p = IN.position;
+	OUT.position =p;
+	OUT.tex0 = IN.tex0;
+	OUT.tex1 = IN.tex1;
+	OUT.tex2 = IN.tex2;
+	OUT.tex3 = IN.tex3;
+	OUT.fog = 1.0f;
+	return OUT;
+}
+
+
+PS_OUTPUT pixel_shader4(const VtoP IN)
+{
+	PS_OUTPUT OUT;
+	
+	float4 color = tex2D( filter_sampler0, IN.tex0 ) * FilterWeights[0] +
+                   tex2D( filter_sampler1, IN.tex1 ) * FilterWeights[1] +
+                   tex2D( filter_sampler2, IN.tex2 ) * FilterWeights[2] +
+                   tex2D( filter_sampler3, IN.tex3 ) * FilterWeights[3] ;
+	OUT.color = color;
+	return OUT;
+}
+
+PS_OUTPUT pixel_shader3(const VtoP IN)
+{
+	PS_OUTPUT OUT;
+	
+	float4 color = tex2D( filter_sampler0, IN.tex0 ) * FilterWeights[0] + 
+                   tex2D( filter_sampler1, IN.tex1 ) * FilterWeights[1] + 
+                   tex2D( filter_sampler2, IN.tex2 ) * FilterWeights[2] ; 
+
+	OUT.color = color;
+	return OUT;
+}
+
+PS_OUTPUT pixel_shader2(const VtoP IN)
+{
+	PS_OUTPUT OUT;
+	
+	float4 color = tex2D( filter_sampler0, IN.tex0 ) * FilterWeights[0] + 
+                   tex2D( filter_sampler1, IN.tex1 ) * FilterWeights[1] ; 
+
+	OUT.color = color;
+	return OUT;
+}
+
+PS_OUTPUT pixel_shader1(const VtoP IN)
+{
+	PS_OUTPUT OUT;
+	
+	float4 color = tex2D( filter_sampler0, IN.tex0 ) * FilterWeights[0] ;
+
+	OUT.color = color;
+	return OUT;
+}
+
+technique filter
+{
+	pass p0
+	{
+		AlphaTestEnable = (BaseAlphaTestEnable);
+		AlphaRef = (BaseAlphaRef);
+		AlphaBlendEnable = (BaseAlphaBlendEnable);
+		SrcBlend = (BaseSrcBlend);
+		DestBlend = (BaseDestBlend);
+	
+		CullMode = NONE;
+		ZENABLE = FALSE;
+		ZWRITEENABLE  = FALSE;
+		VertexShader = compile vs_1_1 vertex_shader();
+		PixelShader  = compile ps_1_1 pixel_shader1();
+	}
+	pass p1
+	{
+		AlphaTestEnable = (BaseAlphaTestEnable);
+		AlphaRef = (BaseAlphaRef);
+		AlphaBlendEnable = (BaseAlphaBlendEnable);
+		SrcBlend = (BaseSrcBlend);
+		DestBlend = (BaseDestBlend);
+	
+		CullMode = NONE;
+		ZENABLE = FALSE;
+		ZWRITEENABLE  = FALSE;
+		VertexShader = compile vs_1_1 vertex_shader();
+		PixelShader  = compile ps_1_1 pixel_shader2();
+	}
+	pass p2
+	{
+		AlphaTestEnable = (BaseAlphaTestEnable);
+		AlphaRef = (BaseAlphaRef);
+		AlphaBlendEnable = (BaseAlphaBlendEnable);
+		SrcBlend = (BaseSrcBlend);
+		DestBlend = (BaseDestBlend);
+	
+		CullMode = NONE;
+		ZENABLE = FALSE;
+		ZWRITEENABLE  = FALSE;
+		VertexShader = compile vs_1_1 vertex_shader();
+		PixelShader  = compile ps_1_1 pixel_shader3();
+	}
+	pass p3
+	{
+		AlphaTestEnable = (BaseAlphaTestEnable);
+		AlphaRef = (BaseAlphaRef);
+		AlphaBlendEnable = (BaseAlphaBlendEnable);
+		SrcBlend = (BaseSrcBlend);
+		DestBlend = (BaseDestBlend);
+	
+		CullMode = NONE;
+		ZENABLE = FALSE;
+		ZWRITEENABLE  = FALSE;
+		VertexShader = compile vs_1_1 vertex_shader();
+		PixelShader  = compile ps_1_1 pixel_shader4();
+	}
+}
+ÿ

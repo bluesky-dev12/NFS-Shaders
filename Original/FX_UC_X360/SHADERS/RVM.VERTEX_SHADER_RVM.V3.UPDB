@@ -1,0 +1,227 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shader-pdb pdbHint="4e4a0000-fc42592e-87a36b11" version="6995">
+ <files>
+  <file id="0" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Indep\Src\Render\effects\rvm.bbfx" time="01c8f9c0-c77698b6">//--------------------------------------------------------------------------------------
+// RVM Effect
+//--------------------------------------------------------------------------------------
+
+#include "rvm.h"
+
+/*
+Usage Information: This is used by the pipe, and by MAX
+STARTUSAGE: 
+materialDescription: This is a rvm material.
+isTranslucent: false
+PLATFORM: XENON
+stream0: POSITION0, float3
+stream0: COLOR0, color
+stream0: TEXCOORD0, float2
+PLATFORM: PS3
+stream0: POSITION0, float3
+stream0: COLOR0, color
+stream0: TEXCOORD0, float2
+PLATFORM: PC
+stream0: POSITION0, float3
+stream0: COLOR0, color
+stream0: TEXCOORD0, float2
+ENDUSAGE
+*/
+
+const string MaterialClass = "Default";
+
+technique rvm
+&lt;
+	string viewtag = "ANY";
+	string lostag = "ANY";
+&gt;
+{
+    pass P0 
+	&lt; 
+		string depthstencil = "no_zwrite_test"; 
+		string blend = "blend"; 
+		string rasterizer = "default"; 
+	&gt;
+    {   
+        VertexShader = compile vs_3_0 vertex_shader_rvm();
+        PixelShader  = compile ps_3_0 pixel_shader_rvm();
+    }
+}
+</file>
+  <file id="1" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Indep\Src\Render\effects\common\rvm.h" time="01c8f9c0-c76f71a8">#ifndef	RVMPIP_H
+#define RVMPIP_H
+
+//--------------------------------------------------------------------------------------
+// INCLUDES
+//--------------------------------------------------------------------------------------
+
+//--------------------------------------------------------------------------------------
+// DEFINES
+//--------------------------------------------------------------------------------------
+
+//--------------------------------------------------------------------------------------
+// CONSTANTS
+//--------------------------------------------------------------------------------------
+
+//--------------------------------------------------------------------------------------
+// SAMPLERS
+//--------------------------------------------------------------------------------------
+
+sampler2D OPACITY_SAMPLER
+&lt;
+	string TextureSamplerState = "OPACITY_SAMPLER";
+&gt;;
+
+sampler2D MISCMAP1_SAMPLER
+&lt;
+	string TextureSamplerState = "COLORCUBE_SAMPLER";
+&gt;;
+
+//--------------------------------------------------------------------------------------
+// STRUCTURES
+//--------------------------------------------------------------------------------------
+
+struct VS_INPUT_RVM
+{
+	float4 Position : POSITION;
+	float4 Colour : COLOR;
+	float2 TexCoord : TEXCOORD;	
+};
+
+struct VtoP_RVM
+{
+	float4 Position : POSITION;
+	float4 Colour : COLOR;		
+	float2 TexCoord0 : TEXCOORD0;	// Opacity Texture Map
+	float2 TexCoord1 : TEXCOORD1;	// RVM texture
+};
+
+//--------------------------------------------------------------------------------------
+// VERTEX SHADER
+//--------------------------------------------------------------------------------------
+
+VtoP_RVM vertex_shader_rvm( const VS_INPUT_RVM IN )
+{
+	VtoP_RVM OUT;
+	OUT.Position = IN.Position;
+	OUT.TexCoord0 = IN.TexCoord;
+	OUT.Colour = IN.Colour;
+
+	//
+	// Stretch RVM texture out a little in the vertical
+	//
+	OUT.TexCoord1 = IN.TexCoord;
+	OUT.TexCoord1.y += ( OUT.TexCoord1.y == 0.0f ) ? 0.25f : -0.25f;
+
+	return OUT;
+}
+
+//--------------------------------------------------------------------------------------
+// PIXEL SHADER
+//--------------------------------------------------------------------------------------
+
+float4 pixel_shader_rvm(const VtoP_RVM IN) : COLOR0
+{
+	float4 result;
+
+	half4 diffuse = tex2D( MISCMAP1_SAMPLER,IN.TexCoord1.xy );
+	result.xyz = diffuse.xyz;
+
+	half4 opacity = tex2D( OPACITY_SAMPLER,IN.TexCoord0.xy );
+	result.w = IN.Colour.w * opacity.w;
+	return result;
+}
+
+#endif
+</file>
+ </files>
+ <tool name="Compiler">
+  <defines>
+   <define name="SHADER_DEBUG" value="" />
+   <define name="PLAT_XENON" value="" />
+   <define name="SHADERMODEL_3_0" value="" />
+  </defines>
+  <arguments>
+   <argument name="/Zi" value="false" />
+   <argument name="/Vd" value="false" />
+   <argument name="/Xu0_deprecated" value="false" />
+   <argument name="/Odu_deprecated" value="false" />
+   <argument name="/XOd_" value="false" />
+   <argument name="/XOu" value="false" />
+   <argument name="/Xmaxtempreg" value="0" />
+   <argument name="PsSampBase" value="0" />
+   <argument name="PsSampCount" value="0" />
+   <argument name="VsSampBase" value="0" />
+   <argument name="VsSampCount" value="0" />
+   <argument name="VsInstCount" value="0" />
+   <argument name="PsInstCount" value="0" />
+   <argument name="/Od" value="false" />
+   <argument name="/Zpr" value="true" />
+   <argument name="/Zpc" value="false" />
+   <argument name="/Gpp" value="false" />
+   <argument name="/Op" value="false" />
+   <argument name="/Gfa" value="false" />
+   <argument name="/Gfp" value="true" />
+   <argument name="/XZc:zeroInit" value="false" />
+   <argument name="/XVe" value="false" />
+   <argument name="/Xbe:3-" value="false" />
+   <argument name="/Xbe:1-" value="false" />
+   <argument name="/XQInomaskedexports" value="false" />
+   <argument name="/XOautoz" value="false" />
+  </arguments>
+ </tool>
+ <shaders>
+  <shader entrypoint="vertex_shader_rvm" target="vs_3_0" ZPass="0" pdbHint="4e4a0000-fc42592e-87a36b11">
+   <constanttable>
+   </constanttable>
+   <sourcemap>
+    <statement pc="3" file="1" line="53" scope="-1" lastinstruction="0" />
+    <statement pc="0.1" file="1" line="53" scope="-1" lastinstruction="0" />
+    <statement pc="4" file="1" line="66" scope="-1" lastinstruction="0" />
+    <statement pc="1.1" file="1" line="66" scope="-1" lastinstruction="0" />
+    <statement pc="5" file="1" line="53" scope="-1" lastinstruction="0" />
+    <statement pc="6" file="1" line="53" scope="-1" lastinstruction="0" />
+    <statement pc="7" file="1" line="64" scope="-1" lastinstruction="0" />
+    <statement pc="8" file="1" line="66" scope="-1" lastinstruction="0" />
+    <statement pc="9" file="1" line="64" scope="-1" lastinstruction="0" />
+    <statement pc="10" file="1" line="66" scope="-1" lastinstruction="0" />
+    <statement pc="11" file="1" line="66" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="pixel_shader_rvm" retID="17">
+     <parameter id="16" />
+    </function>
+    <function id="1" name="vertex_shader_rvm" retID="14">
+     <parameter id="13" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+    <vfetch Address="3" Register="1" DestSwizzle="xyzw" Semantic="0x00" End="false" />
+    <vfetch Address="5" Register="1" DestSwizzle="xyzw" Semantic="0xa0" End="false" />
+    <vfetch Address="6" Register="0" DestSwizzle="xy__" Semantic="0x50" End="true" />
+   </VfetchInfo>
+   <InterpolatorInfo>
+    <Interpolator Register="0" Semantic="0xa0" Mask="xyzw" />
+    <Interpolator Register="1" Semantic="0x50" Mask="xy" />
+    <Interpolator Register="2" Semantic="0x51" Mask="xy" />
+   </InterpolatorInfo>
+   <LiteralFloats>
+    <Float Register="252" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="253" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="254" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="255" value0="-0.25" value1="0.25" value2="0" value3="0" />
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+ </shaders>
+</shader-pdb>

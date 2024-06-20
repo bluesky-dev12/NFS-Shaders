@@ -1,0 +1,170 @@
+//
+// World Effects
+//
+
+float4x4 WorldViewProj : WORLDVIEWPROJECTION ;
+
+float4 LocalEyePos       : LOCALEYEPOS;
+
+float4 HarmonicCoeff[10] : HARMONIC;
+
+float4x4 BlendMatrices[16]  : BLENDMATRICES;
+
+float4 DiffuseMin		 : DIFFUSEMIN;
+float4 DiffuseRange		 : DIFFUSERANGE;
+
+shared texture diffusemap		: DiffuseMap ;
+shared int BaseAlphaTestEnable	: BASEALPHATESTENABLE;
+shared int BaseAlphaRef			: BASEALPHAREF;
+shared int BaseAlphaBlendEnable	: BASEALPHABLENDENABLE;
+shared int BaseSrcBlend			: BASESRCBLEND;
+shared int BaseDestBlend		: BASEDESTBLEND;
+
+sampler samp = sampler_state
+{
+	texture = <diffusemap>;
+	AddressU = WRAP;
+	AddressV = WRAP;
+	MIPFILTER = LINEAR;
+	MINFILTER = LINEAR;
+	MAGFILTER = LINEAR;
+};
+
+struct VS_INPUT
+{
+	float4 position : POSITION;
+	float4 normal   : NORMAL;
+	float4 color    : COLOR;
+	float4 texcoord : TEXCOORD;
+	float4 weight   : BLENDWEIGHT;
+	float4 index    : BLENDINDICES;
+};
+
+struct VtoP
+{
+	float4 position : POSITION;
+	float4 color    : COLOR;
+	float4 t0       : TEXCOORD0;
+};
+
+struct PS_OUTPUT
+{
+	float4 color : COLOR0;
+};
+
+VtoP vertex_shader(const VS_INPUT IN)
+{
+	VtoP OUT;
+    
+    float4 p=(0,0,0,0);
+    p  = mul(IN.position, BlendMatrices[ IN.index.x ])*IN.weight.x;
+    p += mul(IN.position, BlendMatrices[ IN.index.y ])*IN.weight.y;
+    p += mul(IN.position, BlendMatrices[ IN.index.z ])*IN.weight.z;
+
+	// we have to do a transposed matrix multiply for the normals
+	// just using the first matrix    
+    float3 n=(0,0,0);
+	n  = IN.normal.xxx * BlendMatrices[ IN.index.x ][0].xyz;
+	n += IN.normal.yyy * BlendMatrices[ IN.index.x ][1].xyz;
+	n += IN.normal.zzz * BlendMatrices[ IN.index.x ][2].xyz;
+    
+    float3 view_vector = LocalEyePos - p;
+    view_vector *= rsqrt(dot(view_vector,view_vector));
+
+    float vdotn     = dot( view_vector, n );
+    float4 diffuse_scale  = DiffuseMin + vdotn*DiffuseRange;
+    
+    // Diffuse harmonic lighting
+    float3 normal_square = n*n;  // { x^2, y^2, z^2, w^2 }
+    float3 normal_cross;
+    normal_cross.x = n.x*n.y;
+    normal_cross.y = n.z*n.x;
+    normal_cross.z = n.y*n.z;
+    OUT.color  = HarmonicCoeff[0];
+    OUT.color += HarmonicCoeff[1] * normal_square.x;
+    OUT.color += HarmonicCoeff[2] * normal_square.y;
+    OUT.color += HarmonicCoeff[3] * normal_square.z;
+    OUT.color += HarmonicCoeff[4] * normal_cross.x;
+    OUT.color += HarmonicCoeff[5] * normal_cross.y;
+    OUT.color += HarmonicCoeff[6] * normal_cross.z;
+    OUT.color += HarmonicCoeff[7] * n.x;
+    OUT.color += HarmonicCoeff[8] * n.y;
+    OUT.color += HarmonicCoeff[9] * n.z;
+    OUT.color *= diffuse_scale;
+    OUT.color.w = diffuse_scale.w;
+
+	p = mul(p, WorldViewProj);
+	OUT.position = p;
+	OUT.t0 = IN.texcoord;
+	return OUT;
+}
+
+PS_OUTPUT pixel_shader(const VtoP IN)
+{
+	PS_OUTPUT OUT;
+	float4 tex_sample = tex2D( samp, IN.t0 ) ;
+	
+	float3 output = IN.color.xyz * tex_sample.xyz * 2;
+	OUT.color.xyz = output;
+	OUT.color.w = tex_sample.w*IN.color.w*2;
+	
+	return OUT;
+}
+
+technique world
+{
+    pass p0
+    {
+		AlphaTestEnable = (BaseAlphaTestEnable);
+		AlphaRef = (BaseAlphaRef);
+		AlphaBlendEnable = (BaseAlphaBlendEnable);
+		SrcBlend = (BaseSrcBlend);
+		DestBlend = (BaseDestBlend);
+
+        CullMode = NONE;
+        VertexShader = compile vs_1_1 vertex_shader();
+        PixelShader  = compile ps_1_1 pixel_shader();
+    }
+}
+
+/*
+technique world_fixed
+{
+	pass p0
+	{
+		AlphaTestEnable = (BaseAlphaTestEnable);
+		AlphaRef = (BaseAlphaRef);
+		AlphaBlendEnable = (BaseAlphaBlendEnable);
+		SrcBlend = (BaseSrcBlend);
+		DestBlend = (BaseDestBlend);
+
+		CullMode = NONE;
+		Lighting=FALSE;
+
+		MIPFILTER[0] = LINEAR;
+		MINFILTER[0] = LINEAR;
+		MAGFILTER[0] = LINEAR;
+
+		VertexShader = NULL;
+		PixelShader  = NULL; 
+		FVF = XYZ | DIFFUSE | TEX1 ; 
+
+		Texture[0] = <diffusemap>;
+        ColorArg1[0] = Texture;
+        ColorArg0[0] = Diffuse; 
+		ColorOp[0] = Disable;
+	}
+}
+
+technique world_wireframe
+{
+	pass p0
+	{
+		FillMode = WireFrame;
+		CullMode = CW;
+		VertexShader = compile vs_1_1 vertex_shader();
+		PixelShader  = compile ps_1_1 pixel_shader();
+	}
+}
+
+*/ÿ

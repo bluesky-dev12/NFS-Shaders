@@ -1,0 +1,271 @@
+//
+// Car Effects
+//
+
+float4x4 WorldViewProj   : WORLDVIEWPROJECTION ;
+float4x4 WorldView       : WORLDVIEW ;
+
+float4 LocalEyePos       : LOCALEYEPOS;
+
+float4 HarmonicCoeff[10] : HARMONIC;
+int    AmbientCoeff      : AMBIENTCOEFF;
+
+float4 DiffuseMin		 : DIFFUSEMIN;
+float4 DiffuseRange		 : DIFFUSERANGE;
+float4 SpecularMin		 : SPECULARMIN;
+float4 SpecularRange     : SPECULARRANGE;
+float4 EnvmapMin		 : ENVMAPMIN;
+float4 EnvmapRange       : ENVMAPANGE;
+float  SpecularPower	 : SPECULARPOWER;
+float  EnvmapPower		 : ENVMAPPOWER;
+
+texture EnvMapTex        : EnvMapTexture;
+
+shared texture diffusemap       : DiffuseMap;
+
+shared int BaseAlphaTestEnable	: BASEALPHATESTENABLE;
+shared int BaseAlphaRef			: BASEALPHAREF;
+shared int BaseAlphaBlendEnable	: BASEALPHABLENDENABLE;
+shared int BaseSrcBlend			: BASESRCBLEND;
+shared int BaseDestBlend		: BASEDESTBLEND;
+
+sampler samp = sampler_state
+{
+	texture = <diffusemap>;
+	AddressU = WRAP;
+	AddressV = WRAP;
+	MIPFILTER = LINEAR;
+	MINFILTER = LINEAR;
+	MAGFILTER = LINEAR;
+};
+
+samplerCUBE envmap_sampler = sampler_state
+{
+	texture = <EnvMapTex>;
+	AddressU = CLAMP;
+	AddressV = CLAMP;
+	MIPFILTER = LINEAR;
+	MINFILTER = LINEAR;
+	MAGFILTER = LINEAR;
+};
+
+struct VS_INPUT
+{
+	float4 position : POSITION;
+	float4 normal   : NORMAL;
+	float4 color    : COLOR;
+	float4 texcoord : TEXCOORD;
+};
+
+struct VtoP
+{
+	float4 position       : POSITION;
+	float4 diffuse_color  : COLOR0;
+	float4 specular_color : COLOR1;
+	float4 t0             : TEXCOORD0;
+	float4 t1             : TEXCOORD1;
+};
+
+struct PS_OUTPUT
+{
+	float4 color : COLOR0;
+};
+
+VtoP vertex_shader(const VS_INPUT IN)
+{
+	VtoP OUT;
+	float4 p = mul(IN.position, WorldViewProj);
+	OUT.position = p;
+	OUT.t1 = IN.texcoord;
+
+	float3 view_vector = LocalEyePos - IN.position;
+	view_vector *= rsqrt(dot(view_vector,view_vector));
+
+	float vdotn     = dot( view_vector, IN.normal );
+		  vdotn		= max( 0.01f, vdotn );
+	float specvdotn	= pow( vdotn, SpecularPower );
+	float envvdotn	= pow( vdotn, EnvmapPower );
+
+	float4 diffuse_scale  = DiffuseMin  + (vdotn	 * DiffuseRange);
+	float4 specular_scale = SpecularMin + (specvdotn * SpecularRange);
+	float4 envmap_scale   = EnvmapMin   + (envvdotn	 * EnvmapRange);
+
+	// Diffuse harmonic lighting
+	float4 normal_square = IN.normal*IN.normal;  // { x^2, y^2, z^2, w^2 }
+	float4 normal_cross;
+	normal_cross.x = IN.normal.x*IN.normal.y;
+	normal_cross.y = IN.normal.z*IN.normal.x;
+	normal_cross.z = IN.normal.y*IN.normal.z;
+	OUT.diffuse_color  = HarmonicCoeff[0];
+	OUT.diffuse_color += HarmonicCoeff[1] * normal_square.x;
+	OUT.diffuse_color += HarmonicCoeff[2] * normal_square.y;
+	OUT.diffuse_color += HarmonicCoeff[3] * normal_square.z;
+	OUT.diffuse_color += HarmonicCoeff[4] * normal_cross.x;
+	OUT.diffuse_color += HarmonicCoeff[5] * normal_cross.y;
+	OUT.diffuse_color += HarmonicCoeff[6] * normal_cross.z;
+	OUT.diffuse_color += HarmonicCoeff[7] * IN.normal.x;
+	OUT.diffuse_color += HarmonicCoeff[8] * IN.normal.y;
+	OUT.diffuse_color += HarmonicCoeff[9] * IN.normal.z;
+	OUT.diffuse_color *= diffuse_scale;
+	OUT.diffuse_color.w = diffuse_scale.w;
+	OUT.diffuse_color *= 0.5f;
+
+	float3 refl_vector = 2.0f*vdotn*IN.normal - view_vector;
+	float4 refl_vector4 = float4(refl_vector.x, refl_vector.y, refl_vector.z, 0.0f);
+
+	OUT.t0.xyz = mul( refl_vector4, WorldView );
+	OUT.t0.w = 1.0f;
+
+	// Specular harmonic lighting
+	float3 refl_square = refl_vector*refl_vector;
+	float3 refl_cross;
+	refl_cross.x = refl_vector.x*refl_vector.y;
+	refl_cross.y = refl_vector.z*refl_vector.x;
+	refl_cross.z = refl_vector.y*refl_vector.z;
+	float4 specular;
+	specular  = HarmonicCoeff[0];
+	specular += HarmonicCoeff[1] * refl_square.x;
+	specular += HarmonicCoeff[2] * refl_square.y;
+	specular += HarmonicCoeff[3] * refl_square.z;
+	specular += HarmonicCoeff[4] * refl_cross.x;
+	specular += HarmonicCoeff[5] * refl_cross.y;
+	specular += HarmonicCoeff[6] * refl_cross.z;
+	specular += HarmonicCoeff[7] * refl_vector.x;
+	specular += HarmonicCoeff[8] * refl_vector.y;
+	specular += HarmonicCoeff[9] * refl_vector.z;
+
+	specular.w = max( 0, specular.w );
+	specular.w = min( 1, specular.w );
+
+	float specular_lum = pow( specular.w, SpecularPower );
+
+	OUT.specular_color.xyz	= specular * specular_lum * specular_scale * 0.5f;
+	OUT.specular_color.w	= envvdotn;
+
+	return OUT;
+}
+
+PS_OUTPUT pixel_shader(const VtoP IN)
+{
+	PS_OUTPUT OUT;
+
+	float4 diffuse_sample	= tex2D(   samp,           IN.t1 );
+	float4 envmap_sample	= texCUBE( envmap_sampler, IN.t0 );
+	
+	float4 diffuse_color	= diffuse_sample * IN.diffuse_color;
+	float3 specular_color	= IN.specular_color;
+	float3 envmap_color		= envmap_sample * (2.0 * (EnvmapMin + IN.specular_color.w * EnvmapRange));
+
+	float4 output = 2.0f*diffuse_color;
+	output.xyz += 2.0f*diffuse_color.w*( specular_color+2.0f*envmap_color );
+/*	
+	OUT.color.xyz  = (2.0                  ) * (      diffuse_color );
+	OUT.color.xyz += (2.0 * diffuse_color.w) * (      specular_color);
+	OUT.color.xyz += (2.0 * diffuse_color.w) * (2.0 * envmap_color  );
+	OUT.color.w    = (2.0 * diffuse_color.w);
+*/
+	OUT.color = output;
+	
+	return OUT;
+}
+
+technique car
+{
+    pass p0
+    {
+		AlphaTestEnable = (BaseAlphaTestEnable);
+		AlphaRef = (BaseAlphaRef);
+		AlphaBlendEnable = (BaseAlphaBlendEnable);
+		SrcBlend = (BaseSrcBlend);
+		DestBlend = (BaseDestBlend);
+    
+        VertexShader = compile vs_1_1 vertex_shader();
+        PixelShader  = compile ps_1_1 pixel_shader();
+    }
+}
+
+technique car_fixed_envmap
+{
+	pass p0
+	{
+		AlphaTestEnable = (BaseAlphaTestEnable);
+		AlphaRef = (BaseAlphaRef);
+		AlphaBlendEnable = (BaseAlphaBlendEnable);
+		SrcBlend = (BaseSrcBlend);
+		DestBlend = (BaseDestBlend);
+	
+		Lighting = TRUE;
+		ColorVertex = FALSE;
+		SpecularEnable = TRUE;
+		Ambient  = (AmbientCoeff); 
+		AmbientMaterialSource  = Material;
+		DiffuseMaterialSource  = Material;
+		SpecularMaterialSource = Material;
+
+		MIPFILTER[0] = LINEAR;
+		MINFILTER[0] = LINEAR;
+		MAGFILTER[0] = LINEAR;
+
+		TexCoordIndex[1] = CAMERASPACEREFLECTIONVECTOR;
+
+		VertexShader = NULL;
+		PixelShader  = NULL; 
+		FVF = XYZ | NORMAL | DIFFUSE | TEX1 ; 
+
+		Texture[0] = <diffusemap>;
+        ColorArg1[0] = Texture;
+        ColorArg2[0] = Diffuse; 
+		ColorOp[0] = Modulate2x;
+
+		alphaarg1[0] = Texture;
+		alphaarg2[0] = TFactor;
+		AlphaOp[0] = Modulate2x;
+
+		Texture[1] = <EnvMapTex>;
+		ColorArg0[1] = Current;
+		ColorArg1[1] = Texture;
+		ColorArg2[1] = TFactor;
+		ColorOp[1] = MultiplyAdd;
+
+		alphaarg1[1] = Current;
+		AlphaOp[1] = SelectArg1;
+	}
+}
+
+technique car_fixed
+{
+	pass p0
+	{
+		AlphaTestEnable = (BaseAlphaTestEnable);
+		AlphaRef = (BaseAlphaRef);
+		AlphaBlendEnable = (BaseAlphaBlendEnable);
+		SrcBlend = (BaseSrcBlend);
+		DestBlend = (BaseDestBlend);
+	
+		Lighting = TRUE;
+		ColorVertex = FALSE;
+		SpecularEnable = TRUE;
+		Ambient  = (AmbientCoeff); 
+		AmbientMaterialSource  = Material;
+		DiffuseMaterialSource  = Material;
+		SpecularMaterialSource = Material;
+
+		MIPFILTER[0] = LINEAR;
+		MINFILTER[0] = LINEAR;
+		MAGFILTER[0] = LINEAR;
+
+		VertexShader = NULL;
+		PixelShader  = NULL; 
+		FVF = XYZ | NORMAL | DIFFUSE | TEX1 ; 
+
+		Texture[0] = <diffusemap>;
+        ColorArg1[0] = Texture;
+        ColorArg2[0] = Diffuse; 
+		ColorOp[0] = Modulate2X;
+
+		alphaarg1[0] = Texture;
+		alphaarg2[0] = TFactor;
+		AlphaOp[0] = Modulate2X;
+	}
+}
+ÿ

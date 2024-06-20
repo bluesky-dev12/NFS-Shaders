@@ -1,0 +1,449 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shader-pdb pdbHint="4e4a0000-82e46e55-f9289b39" version="6995">
+ <files>
+  <file id="0" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Indep\Src\Render\effects\debugpoly.bbfx" time="01c8f9c0-c76f71a8">//--------------------------------------------------------------------------------------
+// Debug Poly
+//--------------------------------------------------------------------------------------
+
+//--------------------------------------------------------------------------------------
+// CONSTANTS
+//--------------------------------------------------------------------------------------
+
+float2 cvPixelizationScale;
+
+//--------------------------------------------------------------------------------------
+// SAMPLERS
+//--------------------------------------------------------------------------------------
+
+sampler2D DIFFUSE_SAMPLER
+&lt;
+	string TextureSamplerState = "DIFFUSE_SAMPLER";
+&gt;;
+//{
+//	AddressU = CLAMP;
+//	AddressV = CLAMP;
+//	MIPFILTER = LINEAR;
+//	MINFILTER = LINEAR;
+//	MAGFILTER = LINEAR;
+//};
+
+sampler1D MISCMAP1D_SAMPLER
+&lt;
+	string TextureSamplerState = "DIFFUSE_SAMPLER";
+&gt;;
+//{
+//	AddressU = CLAMP;
+//	AddressV = CLAMP;
+//	MIPFILTER = LINEAR;
+//	MINFILTER = LINEAR;
+//	MAGFILTER = LINEAR;
+//};
+
+sampler2D MISCMAP1_SAMPLER
+&lt;
+	string TextureSamplerState = "DIFFUSE_SAMPLER";
+&gt;;
+//{
+//	AddressU = CLAMP;
+//	AddressV = CLAMP;
+//	MIPFILTER = POINT;
+//	MINFILTER = POINT;
+//	MAGFILTER = POINT;
+//};
+
+sampler3D VOLUMEMAP_SAMPLER
+&lt;
+	string TextureSamplerState = "DIFFUSE_SAMPLER";
+&gt;;
+//{
+//	AddressU = CLAMP;
+//	AddressV = CLAMP;
+//	AddressW = CLAMP;
+//	MIPFILTER = LINEAR;
+//	MINFILTER = LINEAR;
+//	MAGFILTER = LINEAR;
+//};
+
+//--------------------------------------------------------------------------------------
+// STRUCTURES
+//--------------------------------------------------------------------------------------
+
+struct VS_INPUT
+{
+	float4 position : POSITION;
+	float2 texcoord : TEXCOORD;
+};
+
+struct VtoP
+{
+	float4 position : POSITION;
+	//float4 color : COLOR0;
+	float2 tex : TEXCOORD0;
+};
+
+struct PS_OUTPUT
+{
+	float4 color : COLOR0;
+};
+
+//--------------------------------------------------------------------------------------
+// VERTEX SHADERS
+//--------------------------------------------------------------------------------------
+
+VtoP vs_main(const VS_INPUT IN)
+{
+	VtoP OUT;
+	OUT.position = IN.position;
+	OUT.tex = IN.texcoord;
+	//OUT.color = 0x77777777;
+
+	return OUT;
+}
+
+//===========================================================================
+
+float4 vs_main_white_half_alpha(const VS_INPUT IN): POSITION
+{
+	return IN.position;
+}
+
+//--------------------------------------------------------------------------------------
+// PIXEL SHADERS
+//--------------------------------------------------------------------------------------
+
+PS_OUTPUT ps_1d_rgba(const VtoP IN)
+{
+	PS_OUTPUT OUT;
+
+	OUT.color = tex1D(MISCMAP1D_SAMPLER, IN.tex.x);	// * IN.color;
+
+	return OUT;
+}
+
+//===========================================================================
+
+PS_OUTPUT ps_alpha(const VtoP IN)
+{
+	PS_OUTPUT OUT;
+
+	float alpha = tex2D(DIFFUSE_SAMPLER, IN.tex).a;
+	OUT.color = float4(alpha, alpha, alpha, 1);	// * IN.color;
+
+	return OUT;
+}
+
+//===========================================================================
+
+PS_OUTPUT ps_rgba(const VtoP IN)
+{
+	PS_OUTPUT OUT;
+
+	OUT.color = tex2Dbias(DIFFUSE_SAMPLER, float4(IN.tex.xy, 0, 0));	// * IN.color;
+	//OUT.color.xyz = OUT.color.w;
+
+	return OUT;
+}
+
+//===========================================================================
+
+PS_OUTPUT ps_fp32(const VtoP IN)
+{
+	PS_OUTPUT OUT;
+
+	float	fVal = tex2D(DIFFUSE_SAMPLER, IN.tex).x;
+	OUT.color.x = fVal;
+	OUT.color.y = fVal;
+	OUT.color.z = fVal;
+	OUT.color.w = 1.0f;
+
+	return OUT;
+}
+
+//===========================================================================
+
+PS_OUTPUT ps_volume(const VtoP IN)
+{
+	PS_OUTPUT OUT;
+
+	OUT.color = tex3D(VOLUMEMAP_SAMPLER, float3(IN.tex.xy, cvPixelizationScale.x));
+	OUT.color.w = 1.0f;
+
+	return OUT;
+}
+
+//===========================================================================
+
+float4 ps_white_half_alpha(): COLOR0
+{
+	return float4(1.0f, 1.0f, 1.0f, 0.5f);
+}
+
+//===========================================================================
+
+PS_OUTPUT ps_mul_tex_alpha(const VtoP IN)
+{
+	PS_OUTPUT OUT;
+
+	float4 vDiffuse = tex2D(DIFFUSE_SAMPLER, IN.tex);
+	float4 vAlpha   = tex2D(MISCMAP1_SAMPLER, IN.tex);
+
+	OUT.color.rgb = vDiffuse.rgb * vAlpha.a;
+	OUT.color.a   = vAlpha.a;
+
+	return OUT;
+}
+
+//===========================================================================
+
+PS_OUTPUT ps_pixel_double( const VtoP IN )
+{
+	PS_OUTPUT OUT;
+
+	float2 vOffset = round( IN.tex * cvPixelizationScale ) / cvPixelizationScale;
+
+	OUT.color = tex2D( MISCMAP1_SAMPLER, vOffset );
+
+	return OUT;
+}
+
+//===========================================================================
+
+PS_OUTPUT ps_depth( const VtoP IN )
+{
+	PS_OUTPUT OUT;
+
+	float depth = tex2D(DIFFUSE_SAMPLER,IN.tex.xy).x;
+	
+	OUT.color = depth / 5;
+	OUT.color.a = 1.0;
+
+	return OUT;
+}
+
+/*
+Usage Information: This is used by the pipe, and by MAX
+STARTUSAGE: 
+materialDescription: This is a debugpoly material.
+isTranslucent: false
+PLATFORM: XENON
+stream0: POSITION0, float4
+stream0: TEXCOORD0, float2
+PLATFORM: PS3
+stream0: POSITION0, float4
+stream0: TEXCOORD0, float2
+PLATFORM: PC
+stream0: POSITION0, float4
+stream0: TEXCOORD0, float2
+ENDUSAGE
+*/
+
+const string MaterialClass = "Default";
+
+technique DebugPoly
+&lt;
+	string viewtag = "ANY";
+	string lostag = "ANY";
+&gt;
+{
+    pass screen_poly_rgba_texture
+    &lt; 
+		string depthstencil = "no_zwrite_test"; 
+		string blend = "default"; 
+		string rasterizer = "default"; 
+	&gt;
+    {
+        VertexShader = compile vs_3_0 vs_main();
+        PixelShader = compile ps_3_0 ps_rgba();
+    }
+    
+    pass screen_poly_alpha_texture
+    &lt; 
+		string depthstencil = "no_zwrite_test"; 
+		string blend = "default"; 
+		string rasterizer = "default"; 
+	&gt;
+    {
+        VertexShader = compile vs_3_0 vs_main();
+        PixelShader = compile ps_3_0 ps_alpha();
+    }
+
+    pass screen_poly_1d_texture
+    &lt; 
+		string depthstencil = "no_zwrite_test"; 
+		string blend = "default"; 
+		string rasterizer = "default"; 
+	&gt;
+    {
+        VertexShader = compile vs_3_0 vs_main();
+        PixelShader = compile ps_3_0 ps_1d_rgba();
+    }
+
+    pass screen_poly_fp32_texture
+    &lt; 
+		string depthstencil = "no_zwrite_test"; 
+		string blend = "default"; 
+		string rasterizer = "default"; 
+	&gt;
+    {
+        VertexShader = compile vs_3_0 vs_main();
+        PixelShader = compile ps_3_0 ps_fp32();
+    }
+
+    pass screen_poly_volume_texture
+    &lt; 
+		string depthstencil = "no_zwrite_test"; 
+		string blend = "default"; 
+		string rasterizer = "default"; 
+	&gt;
+    {
+        VertexShader = compile vs_3_0 vs_main();
+        PixelShader = compile ps_3_0 ps_volume();
+    }
+
+	pass screen_poly_multiply_textures_alpha
+	&lt; 
+		string depthstencil = "no_zwrite_test"; 
+		string blend = "default"; 
+		string rasterizer = "default"; 
+	&gt;
+	{
+        VertexShader = compile vs_3_0 vs_main();
+        PixelShader = compile ps_3_0 ps_mul_tex_alpha();
+	}
+
+	pass screen_poly_alpha
+	&lt; 
+		string depthstencil = "no_zwrite_test"; 
+		string blend = "default"; 
+		string rasterizer = "default"; 
+	&gt;
+	{
+        VertexShader = compile vs_3_0 vs_main_white_half_alpha();
+		PixelShader = compile ps_3_0 ps_white_half_alpha();
+	}
+
+	pass screen_poly_double
+	&lt; 
+		string depthstencil = "no_zwrite_test"; 
+		string blend = "default"; 
+		string rasterizer = "default"; 
+	&gt;
+	{
+        VertexShader = compile vs_3_0 vs_main();
+		PixelShader = compile ps_3_0 ps_pixel_double();
+	}
+
+	pass screen_poly_depth
+	&lt; 
+		string depthstencil = "no_zwrite_test"; 
+		string blend = "default"; 
+		string rasterizer = "default"; 
+	&gt;
+	{
+        VertexShader = compile vs_3_0 vs_main();
+		PixelShader = compile ps_3_0 ps_depth();
+	}
+}
+</file>
+ </files>
+ <tool name="Compiler">
+  <defines>
+   <define name="SHADER_DEBUG" value="" />
+   <define name="PLAT_XENON" value="" />
+   <define name="SHADERMODEL_3_0" value="" />
+  </defines>
+  <arguments>
+   <argument name="/Zi" value="false" />
+   <argument name="/Vd" value="false" />
+   <argument name="/Xu0_deprecated" value="false" />
+   <argument name="/Odu_deprecated" value="false" />
+   <argument name="/XOd_" value="false" />
+   <argument name="/XOu" value="false" />
+   <argument name="/Xmaxtempreg" value="0" />
+   <argument name="PsSampBase" value="0" />
+   <argument name="PsSampCount" value="0" />
+   <argument name="VsSampBase" value="0" />
+   <argument name="VsSampCount" value="0" />
+   <argument name="VsInstCount" value="0" />
+   <argument name="PsInstCount" value="0" />
+   <argument name="/Od" value="false" />
+   <argument name="/Zpr" value="true" />
+   <argument name="/Zpc" value="false" />
+   <argument name="/Gpp" value="false" />
+   <argument name="/Op" value="false" />
+   <argument name="/Gfa" value="false" />
+   <argument name="/Gfp" value="true" />
+   <argument name="/XZc:zeroInit" value="false" />
+   <argument name="/XVe" value="false" />
+   <argument name="/Xbe:3-" value="false" />
+   <argument name="/Xbe:1-" value="false" />
+   <argument name="/XQInomaskedexports" value="false" />
+   <argument name="/XOautoz" value="true" />
+  </arguments>
+ </tool>
+ <shaders>
+  <shader entrypoint="ps_white_half_alpha" target="ps_3_0" ZPass="0" pdbHint="4e4a0000-82e46e55-f9289b39">
+   <constanttable>
+   </constanttable>
+   <sourcemap>
+    <statement pc="1" file="0" line="175" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="ps_depth" retID="50">
+     <parameter id="49" />
+    </function>
+    <function id="1" name="ps_pixel_double" retID="46">
+     <parameter id="45" />
+    </function>
+    <function id="2" name="ps_mul_tex_alpha" retID="41">
+     <parameter id="40" />
+    </function>
+    <function id="3" name="ps_white_half_alpha" retID="39">
+    </function>
+    <function id="4" name="ps_volume" retID="37">
+     <parameter id="36" />
+    </function>
+    <function id="5" name="ps_fp32" retID="33">
+     <parameter id="32" />
+    </function>
+    <function id="6" name="ps_rgba" retID="30">
+     <parameter id="29" />
+    </function>
+    <function id="7" name="ps_alpha" retID="26">
+     <parameter id="25" />
+    </function>
+    <function id="8" name="ps_1d_rgba" retID="23">
+     <parameter id="22" />
+    </function>
+    <function id="9" name="vs_main_white_half_alpha" retID="21">
+     <parameter id="20" />
+    </function>
+    <function id="10" name="vs_main" retID="18">
+     <parameter id="17" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+   </VfetchInfo>
+   <InterpolatorInfo>
+   </InterpolatorInfo>
+   <LiteralFloats>
+    <Float Register="252" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="253" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="254" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="255" value0="0.5" value1="0" value2="0" value3="0" />
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+ </shaders>
+</shader-pdb>

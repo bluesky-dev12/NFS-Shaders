@@ -1,0 +1,3136 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shader-pdb pdbHint="4e4a0000-1b6667f1-2ae0b5c5" version="6995">
+ <files>
+  <file id="0" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Indep\Src\Render\effects\car_nm.bbfx" time="01c8f9c0-c76aacf4">/********************************************************************
+	file:		car_nm.bbfx
+
+	purpose:	shader for cars that use normal maps
+
+*********************************************************************/
+
+//--------------------------------------------------------------------------------------
+// Samplers
+//--------------------------------------------------------------------------------------
+sampler2D DIFFUSE_SAMPLER 
+&lt;
+	//string TextureType = "diffuse";
+	string TextureSamplerState = "CAR_DIFFUSE_SAMPLER";
+&gt;;
+
+#define SHADOW_SAMPLER DIFFUSE_SAMPLER
+
+sampler2D NORMALMAP_SAMPLER 
+&lt;
+	//string TextureType = "normal";
+	string TextureSamplerState = "NORMALMAP_SAMPLER";
+&gt;;
+
+sampler2D MISCMAP1_SAMPLER 
+&lt;
+	//string TextureType = "misc";
+	string TextureSamplerState = "MISCMAP1_SAMPLER";
+&gt;;
+
+sampler2D AMBIENT_SAMPLER 
+&lt;
+	//string TextureType = "vinyl";
+	string TextureSamplerState = "AMBIENT_SAMPLER";
+&gt;;
+
+//PS3 doesn't use flakes - volume sampler
+#ifndef PLAT_PS3
+sampler3D VOLUMEMAP_SAMPLER 
+&lt;
+	//string TextureType = "volume";
+	string TextureSamplerState = "VOLUMEMAP_SAMPLER";
+&gt;;
+#endif
+
+//--------------------------------------------------------------------------------------
+// Global Parameters
+//--------------------------------------------------------------------------------------
+
+//--------------------------------------------------------------------------------------
+// Material Parameters
+//--------------------------------------------------------------------------------------
+
+//--------------------------------------------------------------------------------------
+// Defines
+//--------------------------------------------------------------------------------------
+
+#ifdef PLAT_PC
+#define PC_USE_SHADER_MODEL_2_0
+#endif
+
+//--------------------------------------------------------------------------------------
+// Includes
+//--------------------------------------------------------------------------------------
+#include "global.h"
+#include "shadowenum.h"
+#include "shadowmap_fx_def.h"
+
+#define USE_TANGENT
+#include "car_common.h"
+#undef USE_TANGENT
+
+//--------------------------------------------------------------------------------------
+// Functions
+//--------------------------------------------------------------------------------------
+
+//--------------------------------------------------------------------------------------
+// Structs
+//--------------------------------------------------------------------------------------
+
+//--------------------------------------------------------------------------------------
+// Vertex Shader
+//--------------------------------------------------------------------------------------
+
+//--------------------------------------------------------------------------------------
+// Pixel Shader
+//--------------------------------------------------------------------------------------
+
+//--------------------------------------------------------------------------------------
+// BBFX Declarations
+//--------------------------------------------------------------------------------------
+/*
+Usage Information: This is used by the pipe, and by MAX
+STARTUSAGE: 
+materialDescription: This is the carnormalmap material
+isTranslucent: false
+
+texture: TEXCOORD0, MAP1, diffuse, DIFFUSE_SAMPLER, "diffuse", "global/art/DEFAULT_DETAIL.tga" 
+texture: TEXCOORD0, MAP1, normal, NORMALMAP_SAMPLER, "normal", "global/art/DEFAULT_DETAIL.tga" 
+texture: TEXCOORD0, MAP1, diffuse2, MISCMAP1_SAMPLER, "misc", "global/art/DEFAULT_DETAIL.tga" 
+texture: TEXCOORD0, MAP1, vinyl, AMBIENT_SAMPLER, "vinyl", "global/art/DEFAULT_DETAIL.tga" 
+texture: TEXCOORD0, MAP1, volume, VOLUMEMAP_SAMPLER, "volume", "global/art/DEFAULT_DETAIL.tga" 
+
+//DO NOT CHANGE THESE - MERGING DEPENDS ON SIZE - ORDER
+PLATFORM: XENON
+stream0: POSITION0, half4
+stream0: NORMAL, dec4n
+stream0: TANGENT0, dec4n
+stream0: COLOR0, color
+stream0: TEXCOORD0, half2
+PLATFORM: PS3
+stream0: POSITION0, half4
+stream0: NORMAL, cmp3n
+stream0: TANGENT0, cmp3n
+stream0: COLOR0, color
+stream0: TEXCOORD0, half2
+PLATFORM: PS3_SPU
+stream0: POSITION0, float4
+stream0: NORMAL, cmp3n
+stream0: TANGENT0, cmp3n
+stream0: COLOR0, color
+stream0: TEXCOORD0, half2
+PLATFORM: PC
+stream0: POSITION0, short4n_10x
+stream0: TEXCOORD0, short2n
+stream0: COLOR0, color
+stream0: NORMAL, short4n
+stream0: TANGENT0, short4n
+ENDUSAGE
+*/
+
+const string MaterialClass = "Car";
+
+//--------------------------------------------------------------------------------------
+// HIGH LEVEL OF DETAIL
+//--------------------------------------------------------------------------------------
+#if !defined(SHADERMODEL_2_0)
+
+//--------------------------------------------------------------------------------------
+// Defines
+//--------------------------------------------------------------------------------------
+#define HighLod
+#define USE_NORMAL_ONLY
+#define USE_TANGENT
+#include "car_uber.h"
+#undef HighLod
+#undef USE_TANGENT
+#undef USE_NORMAL_ONLY
+
+float4 PS_High(const PS_INPUTHigh IN) : COLOR0
+{
+	return PS_CarNormalMapHigh(IN);
+}
+PS_INPUTHigh VS_PaletteHigh(const VS_INPUT IN)
+{
+	return VS_CarHigh(IN, true, PARABOLOIDBASIS_FALSE, INSTANCE_RENDER_FALSE);
+}
+PS_INPUTHigh VS_PaletteHighPara(const VS_INPUT IN)
+{
+	return VS_CarHigh(IN, true, PARABOLOIDBASIS_TRUE, INSTANCE_RENDER_FALSE);
+}
+PS_INPUTHigh VS_NoPaletteHigh(const VS_INPUT IN)
+{
+	return VS_CarHigh(IN, false, PARABOLOIDBASIS_FALSE, INSTANCE_RENDER_FALSE);
+}
+PS_INPUTHigh VS_NoPaletteHighPara(const VS_INPUT IN)
+{
+	return VS_CarHigh(IN, false, PARABOLOIDBASIS_TRUE, INSTANCE_RENDER_FALSE);
+}
+
+//--------------------------------------------------------------------------------------
+// Techniques
+//--------------------------------------------------------------------------------------
+technique NoMatrixPalette
+&lt;
+	string viewtag = "DEFAULT";
+	string lostag = "LODHIGH";
+&gt;
+{
+    pass P0 
+	&lt; 
+		string depthstencil = "default"; 
+		string blend = "car"; 
+		string rasterizer = "default"; 
+	&gt;
+    {   
+        VertexShader = compile vs_3_0 VS_NoPaletteHigh();
+        PixelShader  = compile ps_3_0 PS_High();
+    }
+}
+
+technique MatrixPalette
+&lt;
+	string viewtag = "DEFAULT_MATRIXPALETTE";
+	string lostag = "LODHIGH";
+&gt;
+{
+    pass P0 
+	&lt; 
+		string depthstencil = "default"; 
+		string blend = "car"; 
+		string rasterizer = "default"; 
+	&gt;
+    {   
+        VertexShader = compile vs_3_0 VS_PaletteHigh();
+        PixelShader  = compile ps_3_0 PS_High();
+    }
+}
+
+technique NoMatrixPalette_parabolicenvironmentview
+&lt;
+	string viewtag = "ENVMAP_PARABOLOID";
+	string lostag = "LODHIGH";
+&gt;
+{
+    pass P0 
+	&lt; 
+		string depthstencil = "default"; 
+		string blend = "car"; 
+		string rasterizer = "default"; 
+	&gt;
+    {   
+        VertexShader = compile vs_3_0 VS_NoPaletteHighPara();
+        PixelShader  = compile ps_3_0 PS_High();
+    }
+}
+
+
+technique MatrixPalette_parabolicenvironmentview
+&lt;
+	string viewtag = "ENVMAP_PARABOLOID_MATRIXPALETTE";
+	string lostag = "LODHIGH";
+&gt;
+{
+    pass P0 
+	&lt; 
+		string depthstencil = "default"; 
+		string blend = "car"; 
+		string rasterizer = "default"; 
+	&gt;
+    {   
+        VertexShader = compile vs_3_0 VS_PaletteHigh();
+        PixelShader  = compile ps_3_0 PS_High();
+    }
+}
+
+#endif
+
+//--------------------------------------------------------------------------------------
+// LOW LEVEL OF DETAIL
+//--------------------------------------------------------------------------------------
+
+//--------------------------------------------------------------------------------------
+// Defines
+//--------------------------------------------------------------------------------------
+#define LowLod
+#define USE_TANGENT
+#include "car_uber.h"
+#undef USE_TANGENT
+#undef LowLod
+
+float4 PS_Low(const PS_INPUTLow IN) : COLOR0
+{
+#if defined(SHADERMODEL_2_0)
+	return PS_CarLow(IN, ShadowShaderDetail_OFF, INSTANCE_RENDER_FALSE);
+#else
+	return PS_CarNormalMapLow(IN);
+#endif
+}
+PS_INPUTLow VS_PaletteLow(const VS_INPUT IN)
+{
+	return VS_CarLow(IN, true, PARABOLOIDBASIS_FALSE, INSTANCE_RENDER_FALSE);
+}
+PS_INPUTLow VS_PaletteLowPara(const VS_INPUT IN)
+{
+	return VS_CarLow(IN, true, PARABOLOIDBASIS_TRUE, INSTANCE_RENDER_FALSE);
+}
+PS_INPUTLow VS_NoPaletteLow(const VS_INPUT IN)
+{
+	return VS_CarLow(IN, false, PARABOLOIDBASIS_FALSE, INSTANCE_RENDER_FALSE);
+}
+PS_INPUTLow VS_NoPaletteLowPara(const VS_INPUT IN)
+{
+	return VS_CarLow(IN, false, PARABOLOIDBASIS_TRUE, INSTANCE_RENDER_FALSE);
+}
+
+//--------------------------------------------------------------------------------------
+// Techniques
+//--------------------------------------------------------------------------------------
+technique NoMatrixPaletteLow
+&lt;
+	string viewtag = "DEFAULT";
+	string lostag = "LODLOW";
+&gt;
+{
+    pass P0 
+	&lt; 
+		string depthstencil = "default"; 
+		string blend = "car"; 
+		string rasterizer = "default"; 
+	&gt;
+    {   
+        VertexShader = compile vs_3_0 VS_NoPaletteLow();
+        PixelShader  = compile ps_3_0 PS_Low();
+    }
+}
+
+technique MatrixPaletteLow
+&lt;
+	string viewtag = "DEFAULT_MATRIXPALETTE";
+	string lostag = "LODLOW";
+&gt;
+{
+    pass P0 
+	&lt; 
+		string depthstencil = "default"; 
+		string blend = "car"; 
+		string rasterizer = "default"; 
+	&gt;
+    {   
+        VertexShader = compile vs_3_0 VS_PaletteLow();
+        PixelShader  = compile ps_3_0 PS_Low();
+    }
+}
+
+technique NoMatrixPaletteLow_parabolicenvironmentview
+&lt;
+	string viewtag = "ENVMAP_PARABOLOID";
+	string lostag = "LODLOW";
+&gt;
+{
+    pass P0 
+	&lt; 
+		string depthstencil = "default"; 
+		string blend = "car"; 
+		string rasterizer = "default"; 
+	&gt;
+    {   
+        VertexShader = compile vs_3_0 VS_NoPaletteLowPara();
+        PixelShader  = compile ps_3_0 PS_Low();
+    }
+}
+
+technique MatrixPaletteLow_parabolicenvironmentview
+&lt;
+	string viewtag = "ENVMAP_PARABOLOID_MATRIXPALETTE";
+	string lostag = "LODLOW";
+&gt;
+{
+    pass P0 
+	&lt; 
+		string depthstencil = "default"; 
+		string blend = "car"; 
+		string rasterizer = "default"; 
+	&gt;
+    {   
+        VertexShader = compile vs_3_0 VS_PaletteLowPara();
+        PixelShader  = compile ps_3_0 PS_Low();
+    }
+}
+
+#ifdef PLAT_PS3 //zPrePass
+technique NoMatrixPaletteZPrePass
+&lt;
+	string viewtag = "ZPREPASS";
+	string lostag = "ANY";
+&gt;
+{
+    pass P0 
+	&lt;
+		string depthstencil = "default"; 
+		string blend = "car_zprepass"; 
+		string rasterizer = "default"; 
+	&gt;
+    {
+        VertexShader = compile vs_2_0 VertexShaderZPrePass();
+        PixelShader  = compile ps_2_0 PixelShaderZPrePass();
+    }
+}
+
+#include "mw2_zprep.h"
+
+#endif
+
+#include "mw2_shadow_csm.h"
+</file>
+  <file id="1" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Xenon\Src\Render\effects\global.h" time="01c8f9c5-4d521c5e">#ifndef GLOBAL_H
+#define GLOBAL_H
+
+#include "registermap.h"   
+#include "global_common.h"
+
+// Defined out for the Xbox360 - only needed on the PC
+#define DECLARE_TEXTURE(texture)	
+#define ASSIGN_TEXTURE(texture)	
+#define DECLARE_MINFILTER(default_filter)			 MINFILTER = default_filter;
+#define DECLARE_MAGFILTER(default_filter)			 MAGFILTER = default_filter;
+#define DECLARE_MIPFILTER(default_filter)			 MIPFILTER = default_filter;
+
+#ifndef SHADERMODEL_3_0
+    #define SHADERMODEL_3_0
+#endif
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+//--------------------------------------------------------------------------------------
+// Global Parameters - platform specific.
+//--------------------------------------------------------------------------------------
+float4		cvScreenOffset			: REG_cvScreenOffset;
+float4		cvVertexPowerBrightness : REG_cvVertexPowerBrightness;
+
+#include "reflection.h"
+
+float4 world_cartesian_position( float4 screen_pos )
+{
+ 	float4 p = mul(screen_pos, cmWorldViewProj);  
+    return p;
+}
+
+float4 world_position(COMPILETIME_BOOL enableParaboloidBasis, float4 modelspace_position)
+{
+	if (enableParaboloidBasis)
+	{
+		return world_paraboloid_position(modelspace_position);
+	}
+	else
+	{
+		return world_cartesian_position(modelspace_position);
+	}
+}
+
+float4 world_position(float4 modelspace_position, COMPILETIME_BOOL enableParaboloidBasis, COMPILETIME_BOOL instanceRender)
+{
+	if(instanceRender)
+	{
+		// Want to do a compile time assert here as Instance rendering isn't supported on Xenon at the moment.
+	}
+
+	if (enableParaboloidBasis)
+	{
+		return world_paraboloid_position(modelspace_position);
+	}
+	else
+	{
+		return world_cartesian_position(modelspace_position);
+	}
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+// HDR Colour Space compression
+/////////////////////////////////////////////////////////////////////////////////////////
+
+/* 
+This function maps input 'c' to a curve. 
+
+It is a really important curve!
+It provides the following transformation on the input color:
+
+1. Compresses the dynamic range from 0-2 to 0-1 (which is expressable in 8 bits)
+2. Adds a 'filmic' shoulder to the high end that prevents the color from "slamming
+into the ceiling", which is a class digital problem with a limited number of bits.
+
+Jim Hejl
+07/12/2008
+*/
+float3 CompressColourSpace(float3 c)
+{
+    // filmic response, without implicit gamma
+    // GammaCompress() is active, and does a sqrt() after this response curve
+    return (1-(pow(1-(c*.5),2)));
+    /*
+    float3 c0, c1;
+    c0 = max(c*.75,1);
+    c1 = min(1,c*.75);
+    c1 = 1-pow(c1,2);
+
+    return (c0-c1)*1.3333; 
+    */
+
+    //return (c*.5);//(c*0.5);//saturate((c/(c+0.1812))*1.0906); 
+} 
+
+float3 DeCompressColourSpace(float3 c)
+{
+    // no curve removal at this time
+    return (c);
+    
+    //(c*2);//(c/((1-c)+0.1))*0.2;
+}
+
+half2 DeCompressTextCoords(half2 textCoords)
+{
+	return textCoords;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+// RGBE8 Encoding/Decoding
+// The RGBE8 format stores a mantissa per color channel and a shared exponent 
+// stored in alpha. Since the exponent is shared, it's computed based on the
+// highest intensity color component. The resulting color is RGB * 2^Alpha,
+// which scales the data across a logarithmic scale.
+/////////////////////////////////////////////////////////////////////////////////////////
+
+float4 EncodeRGBE8( in float3 rgb )	  
+{
+	float4 vEncoded;
+
+    // Determine the largest color component
+	float maxComponent = max( max(rgb.r, rgb.g), rgb.b );
+	
+	// Round to the nearest integer exponent
+	float fExp = ceil( log2(maxComponent) );
+
+    // Divide the components by the shared exponent
+	vEncoded.rgb = rgb / exp2(fExp);
+	
+	// Store the shared exponent in the alpha channel
+	vEncoded.a = (fExp + 128) / 255;
+
+	return vEncoded;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+float3 DecodeRGBE8( in float4 rgbe )
+{
+	float3 vDecoded;
+
+    // Retrieve the shared exponent
+	float fExp = rgbe.a * 255 - 128;
+	
+	// Multiply through the color components
+	vDecoded = rgbe.rgb * exp2(fExp);
+	
+	return vDecoded;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+#endif
+</file>
+  <file id="2" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Xenon\Src\Render\effects\registermap.h" time="01c8f9c5-4d521c5e">
+// ------------------------------------------------------------------------------------------------------------------------------------------
+
+#define CONSTANT_RESERVED_DO_NOT_USE			(0)		/* 4 vectors [c0,c3] */
+
+// ------------------------------------------------------------------------------------------------------------------------------------------
+
+#define REG_RESERVED_DO_NOT_USE				register(c0)	/* 4 vectors [c0,c3] */
+
+#define REG_cmWorldMat						register(c4)	/* 4 vectors [c0,c3] */
+#define REG_cmWorldMatTranspose				register(c8)	/* 4 vectors [c4,c7] */
+#define REG_cmWorldView						register(c12)	/* 4 vectors [c8,c11] */
+#define REG_cmShadowMapWVP					register(c16)	/* 4 vectors [c12,c15] */
+#define REG_cmLightWVP						register(c20)	/* 4 vectors [c16,c19] */
+#define REG_cmWorldViewProj					register(c24)	/* 4 vectors [c20,c23] */
+#define REG_cmPrevWorldViewProj				register(c28)	/* 4 vectors [c24,c27] */
+#define REG_cvLocalEyePos					register(c32)	/* 1 vecotr	 [c32] */
+#define REG_cvLocalLightVec					register(c33)	/* 1 vecotr	 [c33] */
+#define REG_cfSkyDomeRotation				register(c34)	/* 1 vecotr	 [c34] */
+
+#define REG_cmLocalColourMatrix				register(c36)	/* 4 vectors [c36,c39] */
+#define REG_cmLocalDirectionMatrix			register(c40)	/* 4 vectors [c40,c43] */
+#define REG_cmLocalPositionMatrix			register(c44)	/* 4 vectors [c44,c47] */
+#define REG_cavHarmonicCoeff				register(c48)	/* 10 floats, 3 vectors, 1 pad vector [48,51] */
+
+#define REG_cvWorldSpecularColour			register(c49)
+#define REG_cvWorldSunColour				register(c50)
+#define REG_cvWorldAmbientColour			register(c51)
+
+#define REG_camBlendMatrices				register(c52)	/* 64 vectors [c52,c115] */
+#define REG_cavWorldHeadlightDirection		register(c68)	/* 2 vectors [c68,c69] */
+#define REG_cavWorldHeadlightPosition		register(c70)	/* 2 vectors [c70,c71] */
+#define REG_cavWorldHeadlightUpDirection	register(c72)	/* 2 vectors [c72,c73] */
+
+#define REG_cvSHColour						register(c51)
+
+// available: [c82,c115] (but would alias cavPcaWeightsR and cavPcaWeightsG)
+// PCA/UCap parameters (ucap.fx, water.fx)
+#define REG_cafPcaMean					register(c81)	/* 1 vector */
+#define REG_cavPcaWeightsR				register(c82)	/* 22 vectors [c82,c103] */
+#define REG_cavPcaWeightsG				register(c104)	/* 22 vectors [c104,c125] */
+#define REG_cavPcaWeightsB				register(c126)	/* 22 vectors [c126,c147] */
+#define REG_cavPcaWeightsX				register(c148)	/* 8 vectors [c148,c155] */
+#define REG_cavPcaWeightsY				register(c156)	/* 8 vectors [c156,c163] */
+#define REG_cavPcaWeightsZ				register(c164)	/* 8 vectors [c164,c171] */
+#define REG_cavPcaWeightsNX				register(c172)	/* 8 vectors [c172,c179] */
+#define REG_cavPcaWeightsNY				register(c180)	/* 8 vectors [c180,c187] */
+#define REG_cavPcaWeightsNZ				register(c188)	/* 8 vectors [c188,c195] */
+#define REG_cavFeatureHeights			register(c196)	/* 1 vector */
+
+// The following parameters alias cavPcaWeightsG:
+#define REG_cfMipMapBias				register(c116)
+#define REG_cfBrightness				register(c117)
+#define REG_cfSurfaceReflection			register(c118)
+#define REG_cfRainIntensity				register(c119)
+#define REG_cfSpecularPower				register(c120)
+#define REG_cfMetallicScale				register(c121)
+#define REG_cfEnvmapPullAmount			register(c122)
+#define REG_cfEnvmapPower				register(c123)
+#define REG_PAD2						register(c125)
+
+// The following parameters alias cavPcaWeightsB:
+#define REG_cfCombinedBrightness		register(c126)
+#define REG_cvVisualEffectFadeColour	register(c127)	/* also aliases cfSkyAlphaTag */
+#define REG_cfSkyAlphaTag				register(c127)	/* also aliases cvVisualEffectFadeColour */
+#define REG_cfShadowVolumeOffset		register(c128)
+#define REG_cfRVMWorldBrightness		register(c129)
+#define REG_cfDesaturation				register(c130)
+#define REG_cfSplitScreenUVScale		register(c132)
+#define REG_cfColourCubeFilterBlend		register(c133)
+#define REG_cfTimeTicker				register(c134)
+#define REG_cfMiddleGray				register(c135)
+#define REG_cfBrightPassThreshold		register(c136)
+#ifndef SMOKE_XENON
+#define REG_cvScreenOffset				register(c137)
+#else
+#define REG_cvScreenOffset				register(c63)
+#endif
+#define REG_cvFog_Br_Plus_Bm			register(c138)
+#define REG_cvFog_One_Over_BrBm			register(c139)
+#define REG_cvFog_Const_1				register(c140)
+#define REG_cvFog_Const_2				register(c141)
+#define REG_cvFog_Const_3				register(c142)
+#define REG_cvAmbientColour				register(c143)
+#define REG_cvShadowParams0				register(c144)
+#define REG_cvShadowParams1				register(c145)
+
+// The following parameters alias cavPcaWeightsX:
+#define REG_cvDiffuseColour				register(c148)
+#define REG_cvSpecularColour			register(c149)
+// available: [c150,c155] (but would alias cavPcaWeightsX)
+
+// The following parameters alias cavPcaWeightsY:
+#define REG_cvShadowColour				register(c156)
+#define REG_cvTextureOffset				register(c161)
+#define REG_cvLocalCenter				register(c162)
+#define REG_cvTreeParams				register(c163)
+
+// The following parameters alias cavPcaWeightsZ:
+#define REG_cvBaseAlphaRef				register(c164)
+#define REG_cvCloudIntensity			register(c165)
+#define REG_cvLocalLightPos				register(c166)
+#define REG_cvPixelizationScale			register(c167)
+#define REG_cvGrassColour				register(c169)
+
+// The following parameters alias cavPcaWeightsNX:
+#define REG_cvDepthOfFieldParams		register(c172)	/* aliases cavFeatureHeights */
+#define REG_cvBlurParams				register(c173)
+
+// The following parameters alias cavPcaWeightsNX and cavPcaWeightsNY:
+#define REG_cavSampleOffsetWeights		register(c174)	// 16 vectors
+#define REG_cvSmokeParams				register(c175)
+#define REG_cmShadowMapVP				register(c180)	// 4 vectors
+#define REG_cmShadowMapBiasMatrix		register(c184)	// 4 vectors
+#ifndef SMOKE_XENON
+#define REG_cmCSMTransform				register(c188)	// 4 vectors
+#else
+#define REG_cmCSMTransform				register(c50)	// 4 vectors
+#endif
+#define REG_cvTint						register(c190)
+#define REG_PAD0						register(c191)	/* free space!! */
+
+
+// bbfx material paramters for world
+
+#define	REG_cfAmbientIntensityW			register(c191)  /* reuse these registers for shaders that need 2 */
+#define	REG_cfDiffuseIntensityW			register(c192)  /* reuse these registers for shaders that need 2 */
+#define	REG_cfSpecularIntensityW		register(c193)  /* reuse these registers for shaders that need 2 */
+#define	REG_cfSpecularPowerW			register(c194)  /* reuse these registers for shaders that need 2 */
+#define	REG_cfReflectionIntensityW		register(c195)
+#define	REG_cfSpecularBackscatterW		register(c196)  /* reuse these registers for shaders that need 2 */
+#define	REG_cfLod_blend_beginW			register(c197) 
+#define	REG_cfLod_blend_biasW			register(c198) 
+#define	REG_cfIlluminationIntensityW	register(c199) 
+#define	REG_cvSpecularColourW			register(c200)
+#define	REG_cfReflectionLightingW		register(c201)
+#define	REG_cfReflectionLtgPwrW			register(c202)
+#define	REG_cfDiffuseIntensity1W		register(c192)
+#define	REG_cfSpecularIntensity1W		register(c193)
+#define	REG_cfSpecularPower1W			register(c194)
+//#define	REG_cfReflectionIntensityW		register(c195)  /* note this is just here to let Andy know I need it in this group */
+#define	REG_cfDiffuseIntensity2W		register(c196)
+#define	REG_cfSpecularIntensity2W		register(c197)
+#define	REG_cfSpecularPower2W			register(c198)
+#define REG_cfDirtAmbientIntensityW		register(c191)
+#define REG_cfDirtBackscatterW			register(c192)
+#define REG_cfDirtSpecularIntensity		register(c193)
+#define REG_cfDirtSpecularPowerW		register(c194)
+#define REG_cfGrassAmbientIntensityW	register(c195)
+#define REG_cfGrassBackscatterW			register(c196)
+#define REG_cfGrassSpecularIntensityW	register(c197)
+#define REG_cfGrassSpecularPowerW		register(c198)
+#define REG_cfRockAmbientIntensityW		register(c199)
+#define REG_cfRockSpecularIntensityW	register(c200)
+#define REG_cfRockSpecularPowerW		register(c201)
+#define	REG_cvDirtSpecularColorW		register(c202)
+#define	REG_cvGrassSpecularColorW		register(c203)
+#define	REG_cvRockSpecularColorW		register(c204)
+#define	REG_cfDebugDiffuseTexW			register(c250)  
+#define	REG_cfDebugSpecularTexW			register(c251) 
+#define	REG_cfDebugNormalTexW			register(c252) 
+#define	REG_cfDebugNormalScaleW			register(c253)
+#define REG_cvFogValue					register(c206)
+#define REG_cvFogColour					register(c207)
+#define REG_cfSkyFogFalloff				register(c208)
+#define REG_cfLightMapVertColBlend		register(c209)
+#define REG_cvLightColour				register(c210)
+#define REG_cvLightPosition				register(c211)
+#define REG_cvFrustumVector				register(c212)
+#define REG_cvSunHazeColour				register(c213)
+#define REG_cfVSMEnabled				register(c214)
+#ifndef SMOKE_XENON
+#define REG_cvVertexPowerBrightness		register(c216)
+#else
+#define REG_cvVertexPowerBrightness		register(c62)
+#endif
+#define REG_cfDrawDepthOfField			register(c230)
+#define REG_cfFogEnable					register(c240)
+#define REG_CSMTransform				register(c249) /* 4 vectors [c249,c252] */
+
+// Light Material Registers - alias REG_cavLightDirections
+
+#define REG_cvDiffuseMin				register(c228)
+#define REG_cvDiffuseRange				register(c229)
+#define REG_cvEnvmapMin					register(c230)
+#define REG_cvEnvmapRange				register(c231)
+#define REG_cvSpecularMin				register(c232)
+#define REG_cvSpecularRange				register(c233)
+#define REG_cvSpecular1Min				register(c234)
+#define REG_cvSpecular1Range			register(c235)
+#define REG_cvPowers					register(c236)
+#define REG_cvClampAndScales			register(c237)
+#define REG_cvFlakes					register(c238)
+#define REG_cvVinylScales				register(c239)
+
+#define	REG_cvGradientParams            register(c240)
+#define	REG_cvGradientColour            register(c241)
+#define	REG_cvGradientColourE           register(c242)
+#define	REG_ScreenRez                  	register(c243)
+#define REG_cfScaleUVs					register(c244)
+#define REG_cvVisualTreatmentParams		register(c245)
+#define REG_cvVisualTreatmentParams2	register(c246)
+#define REG_cvVisualTreatmentParams3	register(c247)
+#define REG_cfCurrentTime				register(c248)
+
+
+// for the constants heavy shader instancing
+// 4 vectors, c4 to c7
+
+#define REG_cvInstanceWorldSunColour		register(c61)
+#define REG_cfSmokeLightInfluence			register(c60)
+#define REG_cvInstanceWorldSunPosition		register(c59)
+#define REG_cvInstanceData					register(c58)	// 4 Vectors
+#define REG_cmInstanceVP					register(c54)
+#define REG_cvInstanceWorldAmbientColour	register(c11)
+#define REG_cvInstancedFogColour			register(c12)
+#define REG_cvInstancedFogValue				register(c13)
+#define REG_cvInstanceArray					register(c64)
+
+
+// Aliased With Light Materials ...
+
+
+</file>
+  <file id="3" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Indep\Src\Render\effects\common\global_common.h" time="01c8f9c0-c76d0f4e">#ifndef __GLOBAL_COMMON_H__
+#define __GLOBAL_COMMON_H__
+
+//--------------------------------------------------------------------------------------
+// Defines
+//--------------------------------------------------------------------------------------
+#define COMPILETIME_BOOL		uniform bool
+#define PARABOLOIDBASIS_TRUE	true
+#define PARABOLOIDBASIS_FALSE	false
+#define INSTANCE_RENDER_TRUE	true
+#define INSTANCE_RENDER_FALSE	false
+
+//--------------------------------------------------------------------------------------
+// Global Parameters
+//--------------------------------------------------------------------------------------
+float4x4	cmWorldViewProj		: REG_cmWorldViewProj;
+float4x4	cmWorldView			: REG_cmWorldView;
+
+float4	cvLocalLightVec			: REG_cvLocalLightVec;  // LOCALLIGHTDIRVECTOR;
+float4	cvLocalEyePos			: REG_cvLocalEyePos;    // LOCALEYEPOS;
+
+float4x4 cmWorldMat				: REG_cmWorldMat;				// WORLD
+float4x4 cmWorldMatTranspose	: REG_cmWorldMatTranspose;
+
+// Used to pass the world matrix transpose to the Shader when instance rendering.
+float4x4	mWorldTransposeInstance;
+
+// Used to pass the world matrix to the Shader when instance rendering.
+float4x4	mWorldInstance;
+
+// Used to pass the light and eye vectors to the PixelShader when instance rendering.
+float3		vLocalLightDir;
+float4		vLocalEyePos;
+
+//--------------------------------------------------------------------------------------
+// Functions - Used by instance rendering to deal with model space variables.
+//--------------------------------------------------------------------------------------
+float3 GetLocalLightDir(COMPILETIME_BOOL instanceRendering)
+{
+	if(!instanceRendering)
+	{
+		return cvLocalLightVec.xyz;
+	}
+	else
+	{
+		return vLocalLightDir;
+	}
+}
+
+float3 GetLocalEyePos(COMPILETIME_BOOL instanceRendering)
+{
+	if(!instanceRendering)
+	{
+		return cvLocalEyePos.xyz;
+	}
+	else
+	{
+		return vLocalEyePos.xyz;
+	}
+}
+
+//--------------------------------------------------------------------------------------
+// Functions - Used by many shaders.
+//--------------------------------------------------------------------------------------
+
+inline float3 NormalTransform(float3 n, COMPILETIME_BOOL instanceRendering)
+{
+    /*
+    Handle Mirror
+
+    Object "mirroring" is a negative scale factor in the world matrix
+    Mirror can be detected by crossing the RIGHT and OUT basis vectors
+    If the UP vector points down (negative), we have a mirror transform.
+    This is handled by applying the sign of the UP vector to the normal
+    */
+
+    float3 up;
+
+    // Compile time branch
+    if(instanceRendering)
+    {
+        up = cross(mWorldInstance[0].xyz,mWorldInstance[1].xyz );
+    }
+    else
+    {
+        up = cross(cmWorldMat[0].xyz,cmWorldMat[1].xyz );
+    }
+    n.xyz *= sign(up.z);
+
+    return (n);
+}
+
+float bias(float b, float x)
+{
+return pow(x, log(b)/log(0.5));
+}
+
+//keep these around in case I need them
+/*
+float gain(float g, float x)
+{
+	float retVal	=  x &lt; 0.5 ? bias(1-g, 2*x)/2 : 1 - bias(1-g, 2 - 2*x)/2;
+	return retVal;
+}
+
+float3 mix( float3 color0, float3 color1, float value )
+{
+return (1-value)*color0 + value*color1; 
+}
+*/
+
+float valueOf(float3 colorVal)
+{
+
+	float minVal	= min(min(colorVal.r, colorVal.g), colorVal.b);
+	float maxVal	= max(max(colorVal.r, colorVal.g), colorVal.b);
+	float delta		= maxVal - minVal;
+
+	float value		= maxVal;
+
+	float satVal	= maxVal &gt; 0 ? delta/maxVal: 0;
+	return value;
+}
+
+/*
+float saturationOf(float3 colorVal)
+{
+
+	float minVal	= min(min(colorVal.r, colorVal.g), colorVal.b);
+	float maxVal	= max(max(colorVal.r, colorVal.g), colorVal.b);
+	float delta		= maxVal - minVal;
+
+	float value		= maxVal;
+
+	float satVal	= maxVal &gt; 0 ? delta/maxVal: 0;
+	return satVal;
+}
+
+float hueOf(float3 colorVal)
+{
+
+	float minVal	= min(min(colorVal.r, colorVal.g), colorVal.b);
+	float maxVal	= max(max(colorVal.r, colorVal.g), colorVal.b);
+	float delta		= maxVal - minVal;
+
+	float value		= maxVal;
+
+	float satVal	= maxVal &gt; 0 ? delta/maxVal: 0;
+
+
+	float hue		= colorVal.r == maxVal ? ((colorVal.g - colorVal.b)/delta ): 0;  // between yellow and magenta
+	hue				= colorVal.g == maxVal ? (2 + (colorVal.b - colorVal.r)/delta) : hue; // between cyan and yellow
+	hue				= colorVal.b == maxVal ? (4 + (colorVal.r - colorVal.g)/delta) : hue; // between magenta and cyan
+	hue				*= 60;
+	hue				= hue &lt; 0 ? hue + 360 : hue;
+
+	return hue;
+}
+*/ 
+#endif //__GLOBAL_COMMON_H__
+
+</file>
+  <file id="4" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Indep\Src\Render\effects\common\reflection.h" time="01c8f9c0-c76f71a8">// Copyright (C) Electronic Arts Canada Inc. 2008. All rights reserved.
+
+#if !defined(_REFLECTION_H_)
+#define _REFLECTION_H_
+
+//#define ENVMAP_TESTING
+
+float4x4 cmEnvMapParaboloid0Matrix;
+float4x4 cmEnvMapParaboloid1Matrix;
+float4x4 cmEnvMapParaboloid2Matrix;
+float4x4 cmEnvMapCube0Matrix;
+float4x4 cmEnvMapCube1Matrix;
+float4x4 cmEnvMapCube2Matrix;
+float4x4 cmEnvMapPlane0Matrix;
+
+samplerCUBE ENVMAP_CUBE0_SAMPLER 
+&lt;
+string TextureSamplerState = "ENVMAP_SAMPLER";
+&gt;;
+
+samplerCUBE ENVMAP_CUBE1_SAMPLER 
+&lt;
+string TextureSamplerState = "ENVMAP_SAMPLER";
+&gt;;
+
+samplerCUBE ENVMAP_CUBE2_SAMPLER 
+&lt;
+string TextureSamplerState = "ENVMAP_SAMPLER";
+&gt;;
+
+sampler2D ENVMAP_PARABOLOID0_SAMPLER
+&lt;
+string TextureSamplerState = "ENVMAP_SAMPLER";
+&gt;;
+
+sampler2D ENVMAP_PARABOLOID1_SAMPLER
+&lt;
+string TextureSamplerState = "ENVMAP_SAMPLER";
+&gt;;
+
+sampler2D ENVMAP_PARABOLOID2_SAMPLER
+&lt;
+string TextureSamplerState = "ENVMAP_SAMPLER";
+&gt;;
+
+sampler2D ENVMAP_PLANE0_SAMPLER
+&lt;
+string TextureSamplerState = "ENVMAP_SAMPLER";
+&gt;;
+
+#define PARABOLOID_BASIS_FARPLANE 500.f
+#define PARABOLOID_BASIS_NEARPLANE 0.1f
+
+#define EnvironmentMapLookup_Car(xxworldspacereflectionvector, mipmaplevel)		EnvironmentMapLookup_Paraboloid_MipLevel(xxworldspacereflectionvector, ENVMAP_PARABOLOID1_SAMPLER, (float3x3)cmEnvMapParaboloid1Matrix, mipmaplevel)
+//#define EnvironmentMapLookup_Car(xxworldspacereflectionvector)				EnvironmentMapLookup_Cube(xxworldspacereflectionvector, ENVMAP_CUBE0_SAMPLER, (float3x3)cmEnvMapCube0Matrix)
+#define EnvironmentMapLookup_World(xxworldspacereflectionvector)				EnvironmentMapLookup_Paraboloid(xxworldspacereflectionvector, ENVMAP_PARABOLOID0_SAMPLER, (float3x3)cmEnvMapParaboloid0Matrix)
+//#define EnvironmentMapLookup_World(xxworldspacereflectionvector)				EnvironmentMapLookup_Paraboloid_MipLevel(xxworldspacereflectionvector, ENVMAP_PARABOLOID0_SAMPLER, (float3x3)cmEnvMapParaboloid0Matrix, kEnvmipMipLevel)
+//#define EnvironmentMapLookup_World(xxworldspacereflectionvector)				EnvironmentMapLookup_Cube(xxworldspacereflectionvector, ENVMAP_CUBE1_SAMPLER, (float3x3)cmEnvMapCube1Matrix)
+#define EnvironmentMapLookup_Building(xxworldspacereflectionvector)				EnvironmentMapLookup_Paraboloid(xxworldspacereflectionvector, ENVMAP_PARABOLOID2_SAMPLER, (float3x3)cmEnvMapParaboloid2Matrix)
+//#define EnvironmentMapLookup_Building(xxworldspacereflectionvector)			EnvironmentMapLookup_Cube(xxworldspacereflectionvector, ENVMAP_CUBE2_SAMPLER, (float3x3)cmEnvMapCube2Matrix)
+#define EnvironmentMapLookup_Character(xxworldspacereflectionvector)			EnvironmentMapLookup_Paraboloid_MipLevel(xxworldspacereflectionvector, ENVMAP_PARABOLOID2_SAMPLER, (float3x3)cmEnvMapParaboloid2Matrix, CharBlurFactor)
+//#define EnvironmentMapLookup_Character(xxworldspacereflectionvector)			EnvironmentMapLookup_Cube(xxworldspacereflectionvector, ENVMAP_CUBE2_SAMPLER, (float3x3)cmEnvMapCube2Matrix)
+#define EnvironmentMapLookup_CarHeavenFloor(xxworldspacereflectionvector)		EnvironmentMapLookup_Plane(xxworldspacereflectionvector, ENVMAP_PLANE0_SAMPLER, cmEnvMapPlane0Matrix)
+
+// Abstract the position basis for the reflection view so we can swap between
+// paraboloid and standard cartesian basis without client code needing to know.
+float4 EnvironmentMapLookup_Plane(float4 worldPosition, sampler2D envmapPlane, float4x4 world2envmap)
+{
+	float4 finalReflect = mul(worldPosition + float4(0, 0, 0.0, 0), world2envmap);
+	//finalReflect.xyz *= float3(1, 1, 1);
+	finalReflect.y = 1 - (finalReflect.y + 1.09);
+	float4 texcoords = float4(((finalReflect.xyz/finalReflect.www) + 1.0f) * 0.5f, 1);
+	return tex2Dproj(envmapPlane, texcoords);
+}
+
+float4 EnvironmentMapLookup_Cube(float3 reflectionVector, samplerCUBE envmapCube, float3x3 world2envmap)
+{
+	reflectionVector.y = -reflectionVector.y;
+	float4 envMapSample = texCUBE(envmapCube, mul(reflectionVector, world2envmap).xyz);
+
+	return envMapSample;
+}
+
+float4 EnvironmentMapLookup_Paraboloid(float3 reflectionVector, samplerCUBE envmapCube, float3x3 world2envmap)
+{
+	float3 pbmsReflection = mul(reflectionVector, world2envmap);
+	
+	float scale = 1.4;
+	float3 refFront;
+	refFront.x = (pbmsReflection.x / (1*(1 + pbmsReflection.z))) + 0.0;
+	refFront.y = (-pbmsReflection.y / (1*(1 + pbmsReflection.z))) + 0.0;
+	refFront.z = 1 / scale;
+
+	float3 refBack;
+	refBack.x = (pbmsReflection.x / (1*(1 - pbmsReflection.z))) + 0.0;
+	refBack.y = ((pbmsReflection.y / (1*(1 - pbmsReflection.z))) + 0.0);
+	refBack.z = -1 / scale;
+
+	float4	envmap_sampleF = texCUBE(envmapCube, refFront.xyz);
+	float4	envmap_sampleB = texCUBE(envmapCube, refBack.xyz);
+
+	float4	envmap_sample = 0; //float4(1, 1, 1, 1);
+	
+	// Branch is acceptable as this is effectively debugging code
+	if (pbmsReflection.z &gt; 0)
+	{
+		envmap_sample = envmap_sampleF;
+	}
+	else
+	{
+		envmap_sample = envmap_sampleB;
+	}
+	return envmap_sample;
+}
+
+float4 EnvironmentMapLookup_ParaboloidUVUV(float3 pbmsReflection)
+{
+	float2 refFront;
+	refFront.x = (pbmsReflection.x / (1*(1 + pbmsReflection.z))) + 0.0;
+	refFront.y = (pbmsReflection.y / (1*(1 + pbmsReflection.z))) + 0.0;
+
+	float2 refBack;
+	refBack.x = (pbmsReflection.x / (1*(1 - pbmsReflection.z))) + 0.0;
+	refBack.y = ((pbmsReflection.y / (1*(1 - pbmsReflection.z))) + 0.0);
+
+	float2	envmap_sampleF = float2(0.5, 0.25) * refFront.xy + float2(0.5, 0.25);
+	float2	envmap_sampleB = float2(0.5, 0.25) * refBack.xy + float2(0.5, 0.75);
+
+	envmap_sampleB.x = 1 - envmap_sampleB.x;
+	return float4(envmap_sampleF, envmap_sampleB);
+}
+
+float4 EnvironmentMapLookup_Paraboloid(float3 reflectionVector, sampler2D envmapParaboloid, float3x3 world2envmap)
+{
+	float3 pbmsReflection = mul(reflectionVector, world2envmap);
+
+	float4 uvuv = EnvironmentMapLookup_ParaboloidUVUV(reflectionVector);
+	float4	envmap_sampleF = tex2D(envmapParaboloid, uvuv.xy);
+	float4	envmap_sampleB = tex2D(envmapParaboloid, uvuv.zw);
+
+	float4	envmap_sample = 0;
+	if (pbmsReflection.z &gt; 0)
+	{
+		envmap_sample = envmap_sampleF;
+	}
+	else
+	{
+		envmap_sample = envmap_sampleB;
+	}
+	return envmap_sample;
+}
+
+float4 EnvironmentMapLookup_Paraboloid_MipLevel(float3 reflectionVector, sampler2D envmapParaboloid, float3x3 world2envmap, float miplevel)
+{
+	float3 pbmsReflection = mul(reflectionVector, world2envmap);
+
+	float4 uvuv = EnvironmentMapLookup_ParaboloidUVUV(reflectionVector);
+
+#if defined(SHADERMODEL_3_0)
+	float4	envmap_sampleF = tex2Dlod(envmapParaboloid, float4(uvuv.xy, 0.f, miplevel));
+	float4	envmap_sampleB = tex2Dlod(envmapParaboloid, float4(uvuv.zw, 0.f, miplevel));
+#elif defined(SHADERMODEL_2_0)
+	float4	envmap_sampleF = tex2D(envmapParaboloid, uvuv.xy);
+	float4	envmap_sampleB = tex2D(envmapParaboloid, uvuv.zw);
+#else
+#error Unsupported shadermodel
+#endif
+
+	float4	envmap_sample = 0;
+	if (pbmsReflection.z &gt; 0)
+	{
+		envmap_sample = envmap_sampleF;
+	}
+	else
+	{
+		envmap_sample = envmap_sampleB;
+	}
+	return envmap_sample;
+}
+
+float4 world_paraboloid_position( float4 modelspace_position )
+{
+ 	float4 p = mul(modelspace_position, cmWorldView);
+#if defined(ENABLE_SCREENOFFSET)
+	p.xy += cvScreenOffset.xy * p.w;
+#endif // ENABLE_SCREENOFFSET
+	p /= p.w;
+	float L = length(p.xyz);
+	p /= L;
+	p.z += 1;
+	p.x = p.x / p.z;
+	p.y = -p.y / p.z;
+	p.z = (L - PARABOLOID_BASIS_NEARPLANE) / (PARABOLOID_BASIS_FARPLANE - PARABOLOID_BASIS_NEARPLANE);
+	p.w = 1;
+    return p;
+}
+
+#endif	// _REFLECTION_H_
+</file>
+  <file id="5" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Indep\Src\Render\effects\common\shadowenum.h" time="01c8f9c0-c76f71a8">#ifndef SHADOWENUM_H
+#define SHADOWENUM_H
+
+// these numbers should match up with the enumerations in ShadowShaderDetail in eEffect.hpp
+// (should make these in a header thats included by both fxc and the game compiler)
+static const int ShadowShaderDetail_OFF = 0;
+static const int ShadowShaderDetail_LOW = 1;
+static const int ShadowShaderDetail_MEDIUM = 2;
+static const int ShadowShaderDetail_HIGH = 3;
+
+#endif
+</file>
+  <file id="6" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Xenon\Src\Render\effects\shadowmap_fx_def.h" time="01c8f9c5-4d521c5e">
+#ifndef _SHADOWMAP_FX_DEF_H
+#define _SHADOWMAP_FX_DEF_H
+
+/////////////////////////////////////////////////////////////////////////////////////////
+#include "shadowenum.h"
+#include "depth.h"
+
+shared float4x4	cmShadowMapWVP			: REG_cmShadowMapWVP;
+shared float4x4	cmShadowMapVP			: REG_cmShadowMapVP;
+shared float4x4 cmLightWVP				: REG_cmLightWVP;
+shared float4x4 cmShadowMapBiasMatrix	: REG_cmShadowMapBiasMatrix;
+
+shared float4 cvAmbientColour			: REG_cvAmbientColour;
+shared float4 cvShadowParams0			: REG_cvShadowParams0;
+shared float4 cvShadowParams1			: REG_cvShadowParams1;
+
+shared float cfVSMEnabled				: REG_cfVSMEnabled;
+
+
+#define	cfShadowMapAlphaMin cvShadowParams0.x
+#define	cfShadowMapBiasA	cvShadowParams0.y
+#define	cfShadowMapBiasB	cvShadowParams0.z
+#define	cfVSMEpsilon		cvShadowParams0.w
+
+#define	ShadowMapNdotLBiasOffset	cvShadowParams1.x
+#define	ShadowMapNdotLBiasScale		cvShadowParams1.y
+#define	ShadowMapVSMThreshold		cvShadowParams1.z
+#define	ShadowMapWingMirrorBias		cvShadowParams1.w
+
+#define SHADOWMAP_C1				0.2f
+#define SHADOWMAP_C2				0.1f
+
+#define BIAS 0.00005f
+
+//#define cfShadowMapScaleY	cvShadowParams1.w
+
+
+//#define ENABLE_SHADOW_STENCIL_MASK
+//#define SHADOW_LOD_ON
+
+#define FADE_SHADOW
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+sampler2D SHADOWMAP_SAMPLER
+&lt;
+	string TextureSamplerState = "SHADOWMAP_SAMPLER";
+&gt;;
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+float CalculateShadowFade(float4 shadowTex)
+{
+	float2 edgeAttenuation = shadowTex.xy / shadowTex.w;
+	edgeAttenuation = saturate(1 - pow(edgeAttenuation,4));
+	return (1 - edgeAttenuation.x * edgeAttenuation.y);
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+float4 VertexShadowTex( float4 v_position, COMPILETIME_BOOL instanceRender )
+{
+	v_position.w = 1.0f;
+	if(instanceRender)
+	{
+		return mul( v_position, mWorldInstance );
+	}
+	else
+	{
+		return mul( v_position, cmWorldMat );
+	}
+}
+
+float4 VertexShadowTexOptimized( const float4 v_position, float ndotl, out float shadow_fade, COMPILETIME_BOOL instanceRender)
+{
+	shadow_fade =  1.0f;
+	return VertexShadowTex( v_position, instanceRender );
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+float4 Tex2DOffset( sampler2D ss, float2 uv, float2 offset )
+{
+	float4 result;
+	float offsetx = offset.x;
+	float offsety = offset.y;
+
+	asm
+	{
+		tfetch2D result, uv, ss, OffsetX=offsetx, OffsetY=offsety
+	};
+
+	return result;
+}
+
+float4x4 cmCSM0ShadowMapWVP;
+float4x4 cmCSM1ShadowMapWVP;
+float4x4 cmCSM2ShadowMapWVP;
+
+const float kShadowMapWidth = 1024.0f;
+const float kShadowMapHeight = 1024.0f;
+
+inline float GetEdgeContrast(float2 shadowUV)
+{
+    #define EDGE_RADIUS 2.0
+
+    float4 tap;
+    float2 ret;
+
+    asm
+    {
+        tfetch2D tap.x___, shadowUV, SHADOWMAP_SAMPLER, OffsetX =-EDGE_RADIUS, OffsetY = EDGE_RADIUS
+        tfetch2D tap._x__, shadowUV, SHADOWMAP_SAMPLER, OffsetX = EDGE_RADIUS, OffsetY = EDGE_RADIUS
+        tfetch2D tap.__x_, shadowUV, SHADOWMAP_SAMPLER, OffsetX =-EDGE_RADIUS, OffsetY =-EDGE_RADIUS
+        tfetch2D tap.___x, shadowUV, SHADOWMAP_SAMPLER, OffsetX = EDGE_RADIUS, OffsetY =-EDGE_RADIUS
+    };
+
+    // edge detect
+    float edge;
+
+    edge=0;
+    edge += abs(tap.x-tap.y);
+    edge += abs(tap.z-tap.w);
+    edge += abs(tap.x-tap.w);
+    edge += abs(tap.y-tap.z);
+
+    return (edge);
+}
+
+inline float SamplePCF(float2 shadowUV, float lightDepth)
+{
+    float4 pcfSamples0;
+    float4 pcfSamples1;
+    float  ret;
+
+    asm
+    {
+        tfetch2D pcfSamples0.x___, shadowUV, SHADOWMAP_SAMPLER, OffsetX = -0.5, OffsetY = -0.5
+        tfetch2D pcfSamples0._x__, shadowUV, SHADOWMAP_SAMPLER, OffsetX =  0.5, OffsetY = -0.5
+        tfetch2D pcfSamples0.__x_, shadowUV, SHADOWMAP_SAMPLER, OffsetX = -0.5, OffsetY =  0.5
+        tfetch2D pcfSamples0.___x, shadowUV, SHADOWMAP_SAMPLER, OffsetX =  0.5, OffsetY =  0.5
+        tfetch2D pcfSamples1.x___, shadowUV, SHADOWMAP_SAMPLER, OffsetX = -1.5, OffsetY = -1.0
+        tfetch2D pcfSamples1._x__, shadowUV, SHADOWMAP_SAMPLER, OffsetX =  1.5, OffsetY = -1.0
+        tfetch2D pcfSamples1.__x_, shadowUV, SHADOWMAP_SAMPLER, OffsetX = -1.5, OffsetY =  1.0
+        tfetch2D pcfSamples1.___x, shadowUV, SHADOWMAP_SAMPLER, OffsetX =  1.5, OffsetY =  1.0
+    };
+
+    pcfSamples0.xyzw = lightDepth &gt; pcfSamples0.xyzw;
+    pcfSamples1.xyzw = lightDepth &gt; pcfSamples1.xyzw;
+    ret  = dot(pcfSamples0, .125); // .125 to normalize the 8 samples
+    ret += dot(pcfSamples1, .125); 
+
+    return (ret);
+}
+
+float DoCSM3ShadowPCF( const float4 shadow_pos )
+{
+    const float EDGE = 0.99;
+
+    float4 shadowTex0 = mul( shadow_pos, cmCSM0ShadowMapWVP );
+    float4 shadowTex1 = mul( shadow_pos, cmCSM1ShadowMapWVP );
+    float4 shadowTex2 = mul( shadow_pos, cmCSM2ShadowMapWVP );
+
+    float4 shadowTex;
+    float2 shadowUV;
+
+    if ( abs(shadowTex2.x) &gt; EDGE || abs(shadowTex2.y) &gt; EDGE )
+    {
+        return 1.0f;
+    }
+    else if ( abs(shadowTex0.x) &lt; EDGE &amp;&amp; abs(shadowTex0.y) &lt; EDGE )
+    {
+        shadowTex = shadowTex0;
+        shadowUV = float2(shadowTex.x/6.0f + (1.0f/6.0f),-shadowTex.y*0.5 + 0.5);
+    }
+    else if ( abs(shadowTex1.x) &lt; EDGE &amp;&amp; abs(shadowTex1.y) &lt; EDGE )
+    {
+        shadowTex = shadowTex1;
+        shadowUV = float2(shadowTex.x/6.0f + (3.0f/6.0f),-shadowTex.y*0.5 + 0.5);
+    }
+    else //will pass when ( abs(shadowTex2.x) &lt; EDGE &amp;&amp; abs(shadowTex2.y) &lt; EDGE )
+    {
+        shadowTex = shadowTex2;
+        shadowUV = float2(shadowTex.x/6.0f + (5.0f/6.0f),-shadowTex.y*0.5 + 0.5);
+    }
+
+    float lightDepth = shadowTex.z;
+    float ret;
+    float4 ctr;
+
+    asm
+    {
+        // tap center
+        tfetch2D ctr.x___, shadowUV, SHADOWMAP_SAMPLER
+    };
+
+#if defined (DEPTH_HIZ)
+    // this places the light depth into inverted depth space
+    // doing this avoids inverting all the depth taps
+    lightDepth = 1-lightDepth;
+#endif
+
+    // add bias to remove acne
+    lightDepth = lightDepth + BIAS;
+
+    // solve center depth test
+    float centerResult = lightDepth &gt; ctr.x;
+
+    // edge detect
+    if (GetEdgeContrast(shadowUV) &lt; .5)
+    {
+        // not on an edge, filtering not needed: early out 
+        // return center result
+        return centerResult;
+    }
+
+    // pcf sample
+    ret = SamplePCF(shadowUV,lightDepth);
+
+    // accumulate center sample
+    ret += centerResult;
+
+    // ret = (pcf + center) / 2
+    return (ret/2);
+}
+
+#if 0
+//Save for reference
+float DoCSM3Shadow const float4 shadow_pos )
+{
+    /* texcorrd math removed ... the interesting stuff is the bilinear weighting below */
+	float4 pcfSamples;
+
+	asm
+	{
+		tfetch2D pcfSamples.x___, shadowUV, SHADOWMAP_SAMPLER, OffsetX = -0.5, OffsetY = -0.5
+		tfetch2D pcfSamples._x__, shadowUV, SHADOWMAP_SAMPLER, OffsetX =  0.5, OffsetY = -0.5
+		tfetch2D pcfSamples.__x_, shadowUV, SHADOWMAP_SAMPLER, OffsetX = -0.5, OffsetY =  0.5
+		tfetch2D pcfSamples.___x, shadowUV, SHADOWMAP_SAMPLER, OffsetX =  0.5, OffsetY =  0.5
+	};
+
+	pcfSamples = step( pcfSamples, lightDepth - 0.0000f );
+
+	shadowTex.xy = ( shadowTex.xy + 1.0f ) * 512.0f + 0.5f;
+
+	float2 modfUnused;
+	shadowTex.xy = modf( shadowTex.xy, modfUnused );
+
+	float shadowBot = lerp( pcfSamples.x, pcfSamples.y, shadowTex.x );
+	float shadowTop = lerp( pcfSamples.z, pcfSamples.w, shadowTex.x );
+
+	float shadow = lerp( shadowTop, shadowBot, shadowTex.y );
+
+	shadow = 1.0 - shadow;
+
+	return 0.2f + ( 0.8f * shadow );
+}
+#endif //SAVE FOR REFERENCE
+
+float DoShadow( const float4 shadow_pos, const float ndotl, int shadowDetail = ShadowShaderDetail_HIGH )
+{
+	float shadowmap = 0;
+    
+    shadowmap=DoCSM3ShadowPCF(shadow_pos);
+    //shadowmap=DoCSM3Shadow_ORIG(shadow_pos);
+	float adjusted_ndotl = max(SHADOWMAP_C2, saturate(ndotl));
+	return lerp(0.0f, shadowmap, saturate(adjusted_ndotl - SHADOWMAP_C2)/(SHADOWMAP_C1 - SHADOWMAP_C2));
+}
+
+float DoShadowPCF( const float4 shadow_pos, const float ndotl, float shadow_fade, int shadowDetail = ShadowShaderDetail_HIGH)
+{
+	float shadowmap = 0;
+    
+    shadowmap=DoCSM3ShadowPCF(shadow_pos);
+    //shadowmap=DoCSM3Shadow_ORIG(shadow_pos);
+	float adjusted_ndotl = max(SHADOWMAP_C2, saturate(ndotl));
+	return lerp(0.0f, shadowmap, saturate(adjusted_ndotl - SHADOWMAP_C2)/(SHADOWMAP_C1 - SHADOWMAP_C2));
+}
+
+float DoShadowOptimized( const float4 shadowTex, const float ndotl, float shadow_fade, int shadowDetail = ShadowShaderDetail_HIGH)
+{
+	return DoShadowPCF( shadowTex, ndotl, shadowDetail);
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+
+float DoShadowCar( const float4 shadowTex, const float ndotl, int shadowDetail = ShadowShaderDetail_HIGH )
+{
+	return DoShadow(shadowTex, ndotl, shadowDetail);
+}
+
+// handle legacy call (deprecated)
+#define DoCSM3Shadow DoCSM3ShadowPCF
+
+#endif
+</file>
+  <file id="7" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Xenon\Src\Render\effects\depth.h" time="01c8f9c5-4d521c5e">#ifndef DEPTH_H
+#define DEPTH_H
+
+// XBOX 360
+
+#define DEPTH_HIZ
+
+//--------------------------------------------------------------------------------------
+// GLOBAL FUNCTIONS
+//--------------------------------------------------------------------------------------
+
+// at (uv), returns homogeneous depth, where 0 is the near plane, and 1 is the far plane
+float DepthSampleDepth(sampler2D s, float2 uv)
+{
+    float depth = tex2D( s, uv.xy ).x;
+
+#if defined (DEPTH_HIZ)
+    // inverted depth transform
+    depth = 1-depth;
+#endif
+
+    return (depth);
+}
+
+#endif // DEPTH_H
+</file>
+  <file id="8" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Indep\Src\Render\effects\common\car_common.h" time="01c8f9c0-c76d0f4e">
+#ifndef __CAR_COMMON_H__
+#define __CAR_COMMON_H__
+
+#ifdef PLAT_PC
+#if defined(SHADERMODEL_2_0)
+#undef USE_DAMAGE
+#undef USE_FLAKE_NOISE
+#undef USE_TANGENT
+#undef USE_VINYL
+#undef HighLod
+#define LowLod
+#endif
+#endif
+
+#ifdef VFOG
+#include "fog.h"
+#endif
+#include "shadowenum.h"
+#include "gamma.h"
+#include "shadowmap_fx_def.h"
+
+#define CAR_SHADER
+
+struct VS_INPUT
+{
+	float4 position : POSITION;
+	float4 color    : COLOR;
+	float4 tex		: TEXCOORD0;
+	float3 normal   : NORMAL;
+#ifdef USE_TANGENT
+	float4  tangent	: TANGENT;
+#endif
+};
+
+struct VS_INSTANCE_INPUT
+{
+	VS_INPUT baseInput;
+	float4 worldMat0		: TEXCOORD1;
+	float4 worldMat1		: TEXCOORD2;
+	float4 worldMat2		: TEXCOORD3;
+	float4 worldColourMatrix0	: TEXCOORD4;
+	float4 worldColourMatrix1	: TEXCOORD5;
+	float4 worldColourMatrix2	: TEXCOORD6;
+	float4 worldDirectionMatrix0	: TEXCOORD7;
+	float4 worldDirectionMatrix1	: TEXCOORD8;
+	float4 worldDirectionMatrix2	: TEXCOORD9;
+};
+
+#ifdef PLAT_PS3
+struct VS_INPUT_ZPREP
+{
+	float4 position : POSITION;
+	float4 color    : COLOR;
+	float4 tex		: TEXCOORD0;
+	float3 normal   : NORMAL;
+#ifdef USE_TANGENT
+	float4  tangent	: TANGENT;
+#endif
+};
+
+struct PS_INPUT_ZPREP
+{
+	float4	position			: POSITION;
+	float4	color				: COLOR;
+};
+#endif
+
+// float - half x platform code
+#ifdef PLAT_PS3
+#define real	half
+#define real2	half2
+#define real3	half3
+#define real4	half4
+#define real3x3	half3x3
+#define real4x4	half4x4
+#else
+#define real	float
+#define real2	float2
+#define real3	float3
+#define real4	float4
+#define real3x3	float3x3
+#define real4x4	float4x4
+#endif
+
+#define NV_POWER_NEAR_ZERO_HACK	0.0001
+
+static const float3	kLuminanceVector  =	float3(0.2125f,	0.7154f, 0.0721f);
+static const float  kMipMapBias		  = float(-0.5f);
+static const float  kMipMapBiasSharp  = float(-0.6f);
+
+//--------------------------------------------------------------------------------------
+// Global Parameters
+//--------------------------------------------------------------------------------------
+shared float4   cvTextureOffset			: REG_cvTextureOffset;
+shared float	cfScaleUVs				: REG_cfScaleUVs;
+shared float4	cvPowers				: REG_cvPowers;					// xyz  = Diffuse, Specular, Envmap powers
+shared float4	cvFlakes				: REG_cvFlakes;					// xy   = Diffuse, Spec Metallic Flake amounts
+shared float4	cvClampAndScales		: REG_cvClampAndScales;			// xyzw = Diffuse, Envmap Clamp		zw = Diffuse, Envmap Scale
+
+shared float4	cvDiffuseMin			: REG_cvDiffuseMin;				// DIFFUSEMIN;
+shared float4	cvDiffuseRange			: REG_cvDiffuseRange;			// DIFFUSERANGE;
+shared float4	cvEnvmapMin				: REG_cvEnvmapMin;				// ENVMAPMIN;
+shared float4	cvEnvmapRange			: REG_cvEnvmapRange;			// ENVMAPANGE;
+
+shared float3x4 cmLocalDirectionMatrix	: REG_cmLocalDirectionMatrix;	// LOCALDIRECTIONMATRIX;
+shared float3x4 cmLocalColourMatrix		: REG_cmLocalColourMatrix;		// LOCALCOLOURMATRIX;
+shared float4	cvSpecularMin			: REG_cvSpecularMin;			// SPECULARMIN;
+shared float4	cvSpecularRange			: REG_cvSpecularRange;			// SPECULARRANGE;
+shared float4	cvVinylScales			: REG_cvVinylScales;			// xyz  = Diffuse, Spec, Env lighting scale amounts
+shared float4   cvSHColour				: REG_cvSHColour;	
+
+
+// Instanced version of cmLocalDirectionMatrix &amp; cmLocalColourMatrix.
+shared float3x4 mDirectionMatrix;
+shared float3x4 mColourMatrix;
+
+#define kSpecHotSpotColor		cvSpecularRange.xyz
+#define kSpecFallOffColor		cvSpecularMin.xyz
+#define kEnvmapHotSpotColor		cvEnvmapRange.xyz
+#define kEnvmapFallOffColor		cvEnvmapMin.xyz
+#define kEnvmapMipLevelVinyl	cvEnvmapMin.w
+#define kDiffuseScale			cvVinylScales.x
+#define kBaseSpecularScale		cvVinylScales.y
+#define kVinylSpecularScale		cvSpecularRange.w
+#define kVinylEnvmapAdd			cvVinylScales.z
+#define kBaseEnvmapScale		cvEnvmapRange.w
+#define kSelfIlluminationEnable cvTextureOffset.w
+#define kMinimumTranslucency	cvFlakes.x
+#define kFlakesSpecular			cvFlakes.y
+#define kVinylMinLuminance		cvFlakes.z
+#define kVinylMaxLuminance		cvFlakes.w
+#define kPowerDiffuse			cvPowers.x
+#define kPowerSpecular			cvPowers.y
+#define kPowerEnvmap			cvPowers.z
+#define kEnvmapMipLevel			cvPowers.w
+#define kNoiseMultiplier		8.33f
+
+#ifdef PLAT_PS3
+#define VINYL_ENVMAP_SCALE 0.0
+#else
+#define VINYL_ENVMAP_SCALE 0.5
+#endif
+
+#ifndef PLAT_PS3 // No GPU skinning on PS3
+shared float4x4 camBlendMatrices[16]	: REG_camBlendMatrices;			// BLENDMATRICES;
+
+void GetMatrix(const VS_INPUT IN, out float4x4 result, out float2 uv_damage)
+{
+	// retrieve matrix plate index: 16 entries, 15.1 multplier to offset floating point inaccuracy
+	int index = IN.color.z * 15.1;  
+
+	result = camBlendMatrices[index];
+
+	// clear damage contex information
+	result[2].w = 0; 
+	result[3].w = 1;
+
+	uv_damage.x = camBlendMatrices[index][3].w;		// scale
+	uv_damage.y = camBlendMatrices[index][2].w;		// shift
+}
+#endif
+
+real4 GetLocalPosition(const VS_INPUT IN)
+{
+#ifdef PLAT_PC
+	return real4(IN.position.xyz * 10, 1);
+#else
+	return real4(IN.position.xyz, 1);
+#endif
+}
+
+float4 GetLocalPosition(const VS_INPUT IN, float4x4 tm)
+{
+#ifdef PLAT_PC
+	// multiply by 10 because the pc is storing car positions in type short4n_10x 
+	return mul(float4(IN.position.xyz * 10.0f, 1), tm);
+#else
+	return mul(float4(IN.position.xyz, 1), tm);
+#endif
+}
+
+real3 GetLocalNormal(const VS_INPUT IN)
+{
+	return IN.normal.xyz;
+}
+
+float3 GetLocalNormal(const VS_INPUT IN, float4x4 tm)
+{
+	return mul(IN.normal.xyz, tm).xyz;
+}
+
+#ifdef USE_TANGENT
+
+real4 GetLocalTangent(const VS_INPUT IN)
+{
+	real4 t;
+
+	t.xyz = IN.tangent.xyz;
+	t.w = IN.tangent.w;
+
+	return t;
+}
+
+float4 GetLocalTangent(const VS_INPUT IN, float4x4 tm)
+{
+	float4 t;
+
+	t.xyz = mul(IN.tangent.xyz, tm).xyz;
+	t.w = IN.tangent.w;
+
+	return t;
+}
+
+#ifdef USE_BINORMAL
+float3 GetLocalBinormal(const VS_INPUT IN)
+{
+	float3 n = normalize(IN.normal.xyz);
+	float3 t = normalize(IN.tangent.xyz);
+	float3 b = cross(n, t) * IN.tangent.w;
+
+	return b;
+}
+#endif //USE_BINORMAL
+
+#endif //USE_TANGENT
+
+void ReadPositionNormalTangent(const VS_INPUT IN, bool palette, 
+							   out float4 position, out real3 normal, out real4 tangent, out real2 uv_damage)
+{
+#ifndef PLAT_PS3 // No GPU skinning on PS3
+
+	// compile time IF 
+	if (palette)
+	{
+		float4x4 tm;
+
+		GetMatrix(IN, tm, uv_damage);
+
+		position = GetLocalPosition(IN, tm);
+		normal = GetLocalNormal(IN, tm);
+#ifdef USE_TANGENT
+		tangent = GetLocalTangent(IN, tm);
+#else
+		tangent = 0;
+#endif
+	}
+	else
+
+#endif
+	{
+		position = GetLocalPosition(IN);
+		normal = GetLocalNormal(IN);
+#ifdef USE_TANGENT
+		tangent = GetLocalTangent(IN);
+#else
+		tangent = 0;
+#endif
+		uv_damage = real2(1, 0); // x=scale, y=shift
+	}
+}
+
+static inline float3 EvaluateIlluminationSH(float4 n)
+{
+    const float SH_SCALE=.6*.3;
+    const float4x4 shq = {
+        {0.086770*SH_SCALE,-0.191067*SH_SCALE,0.134546*SH_SCALE,-0.262759*SH_SCALE},
+        {-0.191067*SH_SCALE,-0.086770*SH_SCALE,-0.296761*SH_SCALE,0.332696*SH_SCALE},
+        {0.134546*SH_SCALE,-0.296761*SH_SCALE,0.664833*SH_SCALE,-0.368674*SH_SCALE},
+        {-0.262759*SH_SCALE,0.332696*SH_SCALE,-0.368674*SH_SCALE,0.664616*SH_SCALE},
+    };
+
+	float lum;
+
+	// $TMP: 90 degree rotate about the x axis (convert z-up data to y-up)
+	n.y  =  n.z;
+	n.z *= -1; 
+
+	// evaluate quadratic polynomial (n^t*(n*M)) : 5 instructions
+	lum = dot(mul(n,shq),n);
+
+    // $$TMP: reduce contrast
+    lum.x = pow(lum.x,.7);
+
+	//return (ret.xxx*.5);//cvWorldAmbientColour);
+	return (cvSHColour * lum);
+}
+
+#ifdef PLAT_XENON
+#define USE_SH
+#endif
+
+float4 CalculateShaperRigDiffuseShadowed(real3 normal, float4 shadow_uv, out float shadow, bool do_shadows = false)
+{
+	float4 diffuse;
+
+	// key light 
+	float d = saturate(dot(cmLocalDirectionMatrix[0].xyz, normal));
+
+	// compile time comparison
+	if (do_shadows)
+	{
+		shadow = DoShadowOptimized( shadow_uv, d, 0 )/4;
+	}
+	else
+		shadow = 1;
+
+	diffuse.xyz = cmLocalColourMatrix[0].xyz * d * shadow;
+
+#if defined(USE_SH)
+	// eval sh and modulate with swatch color
+	diffuse.xyz += EvaluateIlluminationSH(float4(normal,1.0)); 
+#else
+	// fill lights
+	d = saturate(dot(cmLocalDirectionMatrix[1].xyz, normal));
+	diffuse.xyz += cmLocalColourMatrix[1].xyz * d;
+
+	d = saturate(dot(cmLocalDirectionMatrix[2].xyz, normal));
+	diffuse.xyz += cmLocalColourMatrix[2].xyz * d;
+#endif
+	diffuse.w = 1.f;
+
+	return diffuse;
+}
+
+float3 CalculateShaperRigDiffuseBase(real3 normal, float3x4 directionMatrix, float3x4 colourMatrix)
+{
+	float3 diffuse;
+
+	// key light
+	float d = saturate(dot(directionMatrix[0].xyz, normal));
+
+	diffuse = colourMatrix[0].xyz * d;
+
+#if defined(USE_SH)
+	// eval sh and modulate with swatch color
+	diffuse.xyz += EvaluateIlluminationSH(float4(normal,1.0));
+#else
+	// fill lights
+	d = saturate(dot(directionMatrix[1].xyz, normal));
+	diffuse += colourMatrix[1].xyz * d;
+
+	d = saturate(dot(directionMatrix[2].xyz, normal));
+	diffuse += colourMatrix[2].xyz * d;
+#endif
+
+	return diffuse;
+}
+
+float3 CalculateShaperRigDiffuse(real3 normal, COMPILETIME_BOOL instanceRender)
+{
+	if(instanceRender)
+	{
+		return CalculateShaperRigDiffuseBase(normal, mDirectionMatrix, mColourMatrix);
+	}
+	else
+	{
+		return CalculateShaperRigDiffuseBase(normal, cmLocalDirectionMatrix, cmLocalColourMatrix);
+	}
+}
+
+#ifdef PLAT_PS3
+PS_INPUT_ZPREP VertexShaderZPrePass(float4 position : POSITION,
+									float4 color    : COLOR)
+{
+	PS_INPUT_ZPREP OUT;
+
+	OUT.position = world_position(PARABOLOIDBASIS_FALSE, float4(position.xyz, 1.0));
+	OUT.color	 = color;
+
+	return OUT;
+}
+
+float4 PixelShaderZPrePass(const PS_INPUT_ZPREP IN) : COLOR0
+{
+	return IN.color;
+}
+#endif
+
+#endif //__CAR_COMMON_H__
+
+</file>
+  <file id="9" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Indep\Src\Render\effects\common\gamma.h" time="01c8f9c0-c76d0f4e">#ifndef _GAMMA_H
+#define _GAMMA_H
+
+//////////////////////////////////////////////////////
+// DEFINES
+//////////////////////////////////////////////////////
+
+//////////////////////////////////////////////////////
+// GLOBAL FUNCTIONS
+//////////////////////////////////////////////////////
+
+// Linear to Gamma 2.0 transform (c^0.5)
+inline float3 GammaCompress( float3 c ) 
+{ 
+    return sqrt(c);  
+}
+
+// Gamma 2.0 to linear transform (c*c)
+inline float3 GammaExpand( float3 c )   
+{ 
+    return c * c;
+}
+
+#endif //_GAMMA_H
+</file>
+  <file id="10" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Indep\Src\Render\effects\common\car_uber.h" time="01c8f9c0-c76d0f4e">
+#ifdef PLAT_PC
+#if defined(SHADERMODEL_2_0)
+#undef USE_FLAKE_NOISE
+#undef USE_TANGENT
+#undef USE_DAMAGE
+#undef USE_FLAKE_NOISE
+#undef HighLod
+#undef USE_VINYL
+#define LowLod
+#endif
+#endif
+
+#ifndef CAR_SHADER
+#define CAR_SHADER
+#endif
+
+#ifdef HighLod	//----------------HIGH LOD-----------------&gt;&gt;
+
+#define SELECTLOD High
+//#define ENVMAP_TESTING
+
+#define INTERPOL_POS0	float4  position		: POSITION;		/* xyzw */												
+
+#ifndef USE_NORMAL_ONLY
+#define INTERPOL_COL0	float4  diffuse			: COLOR0;		/* rgba = full diffuse colour*/							
+#else
+#define INTERPOL_COL0
+#endif
+
+#define INTERPOL_COL1	float4  envmap_scale	: COLOR1;		/* rgb  = envmap scale colour	a = light luminance*/	
+#define INTERPOL_TEX0	real4   uv_occ_bias		: TEXCOORD0;	/* xy   = st	zw  = ambient occ, bias*/				
+#define INTERPOL_TEX1	float4	shadow_tex		: TEXCOORD1;
+#define INTERPOL_TEX2	real4	normal			: TEXCOORD2;    /* w   = env scale amount (0.1 or 1.0)*/				
+#define INTERPOL_TEX3	real4   view			: TEXCOORD3;	// xyz  = view dir	 			w   = metallic fleck amount
+
+#if defined(USE_FLAKE_NOISE) || defined(USE_DAMAGE)
+#define INTERPOL_TEX4	real4   noise_dmg		: TEXCOORD4;	// xyz	= noise texcoords	w=damage level
+#else
+#define INTERPOL_TEX4
+#endif
+
+#ifdef USE_TANGENT
+#define INTERPOL_TEX5	real4  tangent			: TEXCOORD5;															
+#else
+#define INTERPOL_TEX5
+#endif
+
+#ifdef VFOG
+#define INTERPOL_FOG	float   fog				: FOG;											
+#else
+#define INTERPOL_FOG
+#endif
+
+#endif
+
+#ifdef LowLod	//----------------LOW LOD------------------&gt;&gt;
+
+#define SELECTLOD Low
+
+#define INTERPOL_POS0	float4  position		: POSITION;		/* xyzw */												
+#define INTERPOL_COL0	float4  diffuse			: COLOR0;		/* rgba = full diffuse colour*/							
+#define INTERPOL_COL1	float4  envmap_scale	: COLOR1;		/* rgb  = envmap scale colour	a = light luminance*/	
+#define INTERPOL_TEX0	float4  uv_occ_bias		: TEXCOORD0;	/* xy   = st	zw  = ambient occ, bias*/				
+
+#ifdef USE_TANGENT
+#define INTERPOL_TEX1	float4  tangent         : TEXCOORD1;															
+#define INTERPOL_TEX2	float4	normal			: TEXCOORD2;    /* w   = env scale amount (0.1 or 1.0)*/
+#define INTERPOL_TEX3   float4  view_direction  : TEXCOORD3;
+#else
+#define INTERPOL_TEX1	float4  reflection		: TEXCOORD1;	/* xyz  = reflection dir w = metallic fleck amount*/	
+#define INTERPOL_TEX2
+#define INTERPOL_TEX3
+#endif
+
+#define INTERPOL_TEX4
+#define INTERPOL_TEX5
+
+#ifdef VFOG
+#define INTERPOL_FOG	float   fog				: FOG;											
+#else
+#define INTERPOL_FOG
+#endif
+
+#endif
+
+#ifndef SELECTLOD
+#error You must select an LOD before including this file (define HighLod or )
+#endif
+
+#define DEFINE_INPUT_LOD(lod) before_DEFINE_INPUT_LOD(lod)
+
+#define before_DEFINE_INPUT_LOD(lod)	\
+struct PS_INPUT ## lod			\
+{								\
+	INTERPOL_POS0				\
+	INTERPOL_COL0				\
+	INTERPOL_COL1				\
+	INTERPOL_TEX0				\
+	INTERPOL_TEX1				\
+	INTERPOL_TEX2				\
+	INTERPOL_TEX3				\
+	INTERPOL_TEX4				\
+	INTERPOL_TEX5				\
+	INTERPOL_FOG				\
+}
+
+DEFINE_INPUT_LOD(SELECTLOD);
+
+#define before_SHADERLOD(name, lod) name##lod
+#define SHADERLOD(name, lod) before_SHADERLOD(name, lod)
+
+#define before_INPUTLOD(name, lod) name##lod
+#define INPUTLOD(name, lod) before_INPUTLOD(name, lod)
+
+#ifdef HighLod
+struct PS_INPUT_INST
+{
+	PS_INPUTHigh baseIn;
+	float4   worldLightDir	: TEXCOORD6;
+	float3	 worldColour	: TEXCOORD7;
+};
+#endif
+	
+#if defined( USE_VINYL ) &amp;&amp; defined( USE_VINYL_ONLY )
+#define VINYL_OUTPUT out float vinyl_y : TEXCOORD6,
+#else
+#define VINYL_OUTPUT
+#endif
+
+#ifdef ALPHA_FADE
+#define kCarFadeOutScale		cvTextureOffset.z
+#else
+#define kCarFadeOutScale		1.0f
+#endif
+
+#ifdef CAR_USE_2DBIAS
+#define cartex2D(s, uv_occ_bias) tex2Dbias(s, uv_occ_bias)
+#else
+#define cartex2D(s, uv_occ_bias) tex2D(s, uv_occ_bias.xy)
+#endif
+
+#ifdef HighLod
+ real3 GetDamagedNormal(const PS_INPUTHigh IN)
+ {
+#ifdef USE_TANGENT
+	 real3 n = normalize(IN.normal.xyz);
+	 real3 t = normalize(IN.tangent.xyz);
+	 real3 b = cross(n, t);//* IN.tangent.w;
+	 real3x3 tbn = {t, b, n};
+
+	 // per pixel damage -&gt; normal vector
+	 real3 normal = cartex2D(NORMALMAP_SAMPLER, IN.uv_occ_bias).xyz;
+	 normal = normal * 2 - 1;
+	 normal.z = sqrt(1 - dot(normal.xy, normal.xy)); // this doesnt need to be correctly calculated (we can skip sqrt)	
+#ifdef USE_DAMAGE
+	 normal = normalize(lerp(half3(0, 0, 1), normal, IN.noise_dmg.w * IN.diffuse.a));
+#endif
+	 normal = mul(normal, tbn);
+#else
+	 real3	normal = normalize(IN.normal.xyz);
+#endif
+	 return normal;
+ }
+
+  #ifdef USE_FLAKE_NOISE
+ float3 GetNoiseNormal(const PS_INPUTHigh IN, real3 normal)
+ {
+#if defined( PLAT_PS3 ) || (!defined( USE_FLAKE_NOISE ) &amp;&amp; !defined( USE_DAMAGE ))
+	 return normal;
+#else
+	 if (cvFlakes.y &lt;= 0 || IN.view.w &lt; 0.001)
+	 {
+		 return normal;
+	 }
+	 else
+	 {
+		 float3 uv = IN.noise_dmg.xyz;
+
+		 float3 noise = tex3D(VOLUMEMAP_SAMPLER,	uv).xyz;
+		 uv = uv * 3.1;
+		 noise = noise + tex3D(VOLUMEMAP_SAMPLER, uv).xyz - 1;
+
+		 return normalize(normal + noise * IN.view.w);
+	 }
+#endif
+ }
+#endif //USE_FLAKE_NOISE
+#endif
+
+INPUTLOD(PS_INPUT,SELECTLOD) SHADERLOD( VS_Car, SELECTLOD)(const VS_INPUT IN, VINYL_OUTPUT uniform bool use_matrix_palette, COMPILETIME_BOOL enableParaboloidBasis, COMPILETIME_BOOL instanceRender)
+{
+	float4 localPosition;
+	real3 localNormal;
+	real4 localTangent;
+	real2 uv_damage;
+	
+	INPUTLOD(PS_INPUT,SELECTLOD) OUT;
+	
+	ReadPositionNormalTangent(IN, use_matrix_palette, localPosition, localNormal, localTangent, uv_damage);
+	
+	OUT.position		= world_position(localPosition, enableParaboloidBasis, instanceRender);
+
+#ifdef HighLod
+	#if defined(USE_DAMAGE)
+		OUT.noise_dmg		= localPosition;
+		#if defined(USE_FLAKE_NOISE) 
+			OUT.noise_dmg		= OUT.noise_dmg * kNoiseMultiplier;
+		#endif
+
+	#endif
+
+	#ifdef USE_DAMAGE
+		OUT.noise_dmg.w		= IN.position.w;
+
+	#endif
+#endif
+
+#ifdef USE_TANGENT
+	OUT.uv_occ_bias.xy  = IN.tex.xy * cfScaleUVs;
+#else
+	if (use_matrix_palette)	
+	{
+		OUT.uv_occ_bias.xy  = (IN.tex.xy + cvTextureOffset.xy);
+	#ifdef USE_VINYL
+		vinyl_y = OUT.uv_occ_bias.y;
+	#endif
+		OUT.uv_occ_bias.y = OUT.uv_occ_bias.y * uv_damage.x + uv_damage.y;
+	}
+	else
+	{
+		OUT.uv_occ_bias.xy  = (IN.tex.xy + cvTextureOffset.xy) * cfScaleUVs;
+	#ifdef USE_VINYL
+		vinyl_y = OUT.uv_occ_bias.y;
+	#endif
+	}
+#endif
+	
+	OUT.uv_occ_bias.z	= IN.color.x;
+
+#ifdef USE_TANGENT
+	OUT.tangent			= localTangent;
+#endif
+
+#ifdef VFOG
+	OUT.fog				= CalcVertexFog(OUT.position);
+#endif
+
+	// Calculate the view direction
+	float3 localViewVector	= GetLocalEyePos(instanceRender) - localPosition.xyz;
+	float  view_length	= length(localViewVector);
+	float vdotn			= dot(localViewVector, localNormal) / view_length;
+#ifdef CAR_USE_2DBIAS
+	OUT.uv_occ_bias.w	= lerp(kMipMapBiasSharp, kMipMapBias, -vdotn);	// bias, and sharpen mip-maps based on view angle
+#else
+	OUT.uv_occ_bias.w	= 0.f;
+#endif
+
+#if defined( LowLod ) 
+	#if defined( USE_TANGENT )
+	OUT.view_direction.xyz	= localViewVector / view_length;
+	OUT.view_direction.w	= vdotn &lt; 0.0f ? 0.25f : 1.0f;;
+	OUT.normal.w			= IN.position.w;
+	OUT.normal.xyz			= localNormal;
+	#else
+	float4 reflection_local	= float4( reflect(-localViewVector, localNormal), 0.0f );		// R = 2 * (N.V) * N - V
+	float4 reflection_world	= float4( mul(reflection_local, cmWorldMat).xyz, 0.0f );
+	OUT.reflection.xyz		= reflection_world.xyz;
+	float3 fake_view_vector	= float3(localViewVector.x, localViewVector.y, localViewVector.z+1);
+	OUT.reflection.w		= dot( normalize(fake_view_vector), IN.normal );					// For specular lighting
+	OUT.reflection.w		= pow( OUT.reflection.w, cvPowers.y );
+	#endif
+#elif defined( HighLod )
+	if(instanceRender)
+	{
+		float3 worldViewVector = mul(localViewVector, (float3x3) mWorldInstance);
+		float3 worldNormal	= mul(localNormal, (float3x3) mWorldInstance);
+		OUT.view.xyz		= worldViewVector;
+		OUT.normal.xyz		= worldNormal;
+	}
+	else
+	{
+		OUT.view.xyz		= localViewVector;
+		OUT.normal.xyz		= localNormal;
+	}
+
+	// Metallic paint distance falloff coeff
+	OUT.view.w			 = saturate(view_length * -0.25 + 1.2);			// line equation
+	OUT.view.w			*= 0.04 * kFlakesSpecular;
+
+	OUT.normal.w = vdotn &lt; 0.0 ? 0.1 : 1.0;
+#endif
+
+	vdotn = saturate(vdotn) + NV_POWER_NEAR_ZERO_HACK;
+
+	// Calcalute view direction powers for each lighting component
+	float	vdotn_diffuse	= min(pow(vdotn, kPowerDiffuse), cvClampAndScales.x) * cvClampAndScales.z;
+
+#ifndef USE_NORMAL_ONLY
+	OUT.diffuse				= cvDiffuseMin + (vdotn_diffuse * cvDiffuseRange);
+#endif
+
+#ifndef USE_TANGENT
+#if defined( LowLod ) 
+	float3 diffuse = CalculateShaperRigDiffuse(localNormal, instanceRender);
+#else
+	float3 diffuse = CalculateShaperRigDiffuse(OUT.normal.xyz, instanceRender);
+#endif
+	OUT.diffuse.xyz			*= diffuse;
+#endif
+
+#if defined( USE_TANGENT ) &amp;&amp; !defined( USE_NORMAL_ONLY )
+	OUT.diffuse.a			= IN.color.a;
+#endif
+
+	// fake fresnel effect
+	float vdotn_envmap		= min(pow(vdotn, kPowerEnvmap),  cvClampAndScales.y) * cvClampAndScales.w;
+
+	OUT.envmap_scale.xyz	= kEnvmapFallOffColor  + (vdotn_envmap  * kEnvmapHotSpotColor);
+
+#ifdef USE_VINYL
+	#ifndef USE_TANGENT
+		float3 lightColour		= diffuse;	
+	#else
+		float3 lightColour		= float3(1, 1, 1);	
+	#endif
+	OUT.envmap_scale.w		= (kVinylMinLuminance + (vdotn_diffuse * kVinylMaxLuminance)) * dot(kLuminanceVector, lightColour);
+#else
+	OUT.envmap_scale.w		= kMinimumTranslucency;
+#endif
+
+	// shadow maps
+#ifdef HighLod
+	OUT.shadow_tex = VertexShadowTex(localPosition, instanceRender);
+#endif
+
+
+	return OUT;
+}
+
+// rim
+// wheel well
+// rubber
+// glass
+// tail-light plastic
+// tail-pipes
+// interior
+#ifndef USE_NORMAL_ONLY
+
+float4	SHADERLOD( PS_Car, SELECTLOD)(const INPUTLOD(PS_INPUT, SELECTLOD) IN, uniform int shadowDetail, COMPILETIME_BOOL instanceRender)
+{
+	float4 OUT;
+	
+	if(instanceRender == false)
+	{
+		mDirectionMatrix[0] = cmLocalDirectionMatrix[0];
+		mColourMatrix[0] = cmLocalColourMatrix[0];
+	}
+
+#ifdef HighLod
+	real3	normal = GetDamagedNormal(IN);
+#elif defined(LowLod) &amp;&amp; defined(USE_TANGENT)
+	real3	normal = IN.normal.xyz;
+#endif
+
+	// Texture Samples
+	float4	diffuse_sample		= cartex2D(DIFFUSE_SAMPLER,	IN.uv_occ_bias);
+	diffuse_sample.rgb = GammaExpand(diffuse_sample.rgb);
+#ifdef USE_SELFILLUMINATION
+	float4	selfillumination_sample = cartex2D(SELFILLUMINATION_SAMPLER,	IN.uv_occ_bias);
+	selfillumination_sample.rgb = GammaExpand(selfillumination_sample.rgb);
+	diffuse_sample.rgb = lerp( diffuse_sample.rgb, selfillumination_sample.rgb, kSelfIlluminationEnable);
+#endif
+
+float3 reflection_world;
+float3 reflection_local;
+
+#ifdef HighLod
+	float3	view_direction = normalize(IN.view.xyz);
+	reflection_local = reflect(-view_direction, normal);
+	if(instanceRender)
+	{
+		reflection_world = reflection_local;
+	}
+	else
+	{
+		reflection_world = mul(reflection_local, (float3x3)cmWorldMat).xyz;
+	}
+	float n_dot_l = saturate(dot(mDirectionMatrix[0].xyz, normal));
+#elif defined( LowLod ) 
+	#if !defined( USE_TANGENT )
+	reflection_world = IN.reflection.xyz;
+	#else
+	reflection_world = IN.normal.xyz;
+	#endif
+	reflection_local = reflection_world;
+#endif
+
+	// Vinyl Scales
+	float diffuse_vinyl_scale	= (1.0 - diffuse_sample.w) * kDiffuseScale;
+	float spec_vinyl_scale		= 1.0 - min(diffuse_sample.w, kBaseSpecularScale);
+	float envmap_vinyl_scale	= 1.0 - min(diffuse_sample.w, kBaseEnvmapScale);
+
+	float3	diffuse_light		= lerp(dot(IN.diffuse.xyz, float3(0.333, 0.333, 0.333)), IN.diffuse.xyz, diffuse_vinyl_scale);
+	float3	diffuse_final		= diffuse_light * diffuse_sample.xyz;
+
+#ifdef HighLod
+
+	// Envmap
+	float4 envmap_sample		= EnvironmentMapLookup_Car(reflection_world, kEnvmapMipLevel);
+	envmap_sample.xyz			= DeCompressColourSpace(envmap_sample.xyz);
+	float3	envmap_color		= envmap_vinyl_scale.rrr * (envmap_sample.rgb * IN.envmap_scale.rgb);
+#endif
+
+	// Specular
+	float spec_dot = saturate(dot(reflection_local, mDirectionMatrix[0].xyz));
+	spec_dot = pow(spec_dot, kPowerSpecular);
+	float3 spec_col = mColourMatrix[0].xyz * (kSpecFallOffColor + (cvSpecularRange.rgb*spec_dot));
+	spec_col *= spec_vinyl_scale * spec_dot;
+
+	// Total up the final colour
+	if(instanceRender)
+		OUT = float4(0,0,0,diffuse_sample.w * vLocalEyePos.w * IN.diffuse.a);
+	else
+		OUT = float4(0,0,0,diffuse_sample.w * kCarFadeOutScale * IN.diffuse.a);
+
+	float ambient_occl = IN.uv_occ_bias.z;
+
+#if defined( HighLod )
+	float shadow = DoShadowOptimized( IN.shadow_tex, n_dot_l, shadowDetail )/4;
+ 
+	OUT.xyz	+= diffuse_final * ambient_occl * IN.diffuse.a;
+	OUT.xyz += spec_col * ambient_occl * shadow;
+	OUT.xyz	+= (envmap_color * IN.normal.w * ambient_occl);// * saturate(shadow));
+
+#else
+	OUT.xyz	+= diffuse_final * ambient_occl;
+	OUT.xyz += spec_col * ambient_occl;
+#endif
+
+#ifdef VFOG
+	OUT.xyz = CalcFogColour(OUT.xyz, IN.fog);
+#endif
+
+#ifdef USE_SELFILLUMINATION
+	OUT.xyz = lerp(OUT.xyz, diffuse_sample.rgb, kSelfIlluminationEnable*selfillumination_sample.a);
+#endif
+
+#if defined(HighLod) &amp;&amp; defined(ENVMAP_TESTING)
+	OUT.xyz = OUT.xyz * 0.00001 + envmap_sample.xyz;
+#endif
+
+    OUT.xyz = GammaCompress(OUT.xyz);
+	OUT.xyz = CompressColourSpace(OUT.xyz);
+
+	return OUT;
+}
+#endif
+
+
+// car body
+// tire
+
+#if defined(USE_TANGENT)
+float4	SHADERLOD( PS_CarNormalMap, SELECTLOD)(const INPUTLOD(PS_INPUT,SELECTLOD) IN, int shadowDetail = ShadowShaderDetail_HIGH)
+{
+#ifdef HighLod
+	real3	normal = GetDamagedNormal(IN);
+	real3	view_direction = normalize(IN.view.xyz);
+#elif defined(LowLod) &amp;&amp; defined(USE_TANGENT)
+	real3	normal = IN.normal.xyz;
+	float3	view_direction = IN.view_direction.xyz;
+#endif
+
+	// Texture Samples
+	float4	diffuse_sample		= cartex2D(DIFFUSE_SAMPLER,	IN.uv_occ_bias);
+	diffuse_sample.xyz			= GammaExpand(diffuse_sample.xyz);
+#ifdef USE_VINYL
+	float4	vinyl_sample		= cartex2D(AMBIENT_SAMPLER,	IN.uv_occ_bias);
+#endif
+
+#ifdef USE_FLAKE_NOISE
+	float3	flake_spec_normal		= GetNoiseNormal(IN, normal);
+	float3	flake_spec_reflection	= reflect(-view_direction, flake_spec_normal);
+#endif
+
+	float3 reflection_local;
+	float3 reflection_world;
+
+	reflection_local = reflect(-view_direction, normal);
+	reflection_world = mul(reflection_local, (float3x3)cmWorldMat).xyz;
+
+	// Diffuse 
+	float vdotn = saturate(dot(view_direction, normal)) + NV_POWER_NEAR_ZERO_HACK;
+	vdotn = pow(vdotn, kPowerDiffuse);
+	vdotn = min(vdotn, cvClampAndScales.x) * cvClampAndScales.z;
+
+	float shadow = 1;
+
+#ifdef HighLod
+	float4 diffuse = CalculateShaperRigDiffuseShadowed(normal, IN.shadow_tex, shadow, shadowDetail);
+#else
+	float4 dummy = {0,0,0,0};
+	float4 diffuse = CalculateShaperRigDiffuseShadowed(normal, dummy, shadow, shadowDetail);
+#endif
+
+	float4 shaper = diffuse;
+
+	diffuse.xyz *= cvDiffuseMin.xyz + (vdotn * cvDiffuseRange.xyz); 
+
+	float4	diffuse_paint		= lerp(diffuse,  diffuse_sample*diffuse, kDiffuseScale);
+
+#ifdef USE_VINYL
+	float4 vinyl_light			= lerp(float4(IN.envmap_scale.w, IN.envmap_scale.w, IN.envmap_scale.w, 0), diffuse, kDiffuseScale);
+	float4	diffuse_vinyl		= shaper * vinyl_light * vinyl_sample;
+#endif
+
+	float4	diffuse_final;
+
+#ifdef USE_VINYL
+	real diffuse_vinyl_scale	= min(vinyl_sample.w, 1 - kDiffuseScale);
+	diffuse_final.xyz			= lerp(diffuse_paint.xyz, diffuse_vinyl.xyz, diffuse_vinyl_scale);	
+#else
+	diffuse_final.xyz			= diffuse_paint.xyz;	
+#endif
+	diffuse_final.w				= diffuse_sample.w;
+
+#ifdef USE_VINYL
+	float mipmapblurlevel		= lerp(kEnvmapMipLevel, kEnvmapMipLevelVinyl, vinyl_sample.w);	
+#else
+	float mipmapblurlevel		= kEnvmapMipLevel;
+#endif
+
+	// Envmap
+	float4 envmap_sample		= EnvironmentMapLookup_Car(reflection_world, mipmapblurlevel);
+
+	envmap_sample.xyz			= DeCompressColourSpace(envmap_sample.xyz);
+
+#ifdef USE_VINYL
+	float baseEnvmapScale = 1.f-min(diffuse_sample.w, kBaseEnvmapScale);
+	float p_v = lerp(baseEnvmapScale, saturate(baseEnvmapScale+kVinylEnvmapAdd), vinyl_sample.w) * saturate(1 - diffuse_vinyl_scale + VINYL_ENVMAP_SCALE);
+#else
+	float p_v = 1.0 - min(diffuse_sample.w, kBaseEnvmapScale);
+#endif
+
+	float3	envmap_color = p_v * (envmap_sample.xyz * IN.envmap_scale.xyz);
+
+#ifdef USE_DAMAGE
+	float4 scratch = cartex2D(MISCMAP1_SAMPLER, IN.uv_occ_bias);
+	float damage = IN.noise_dmg.w * IN.diffuse.a;
+	float  sc = 1 - (scratch.w) * min(damage, 1 - kDiffuseScale);
+	envmap_color *= sc;
+#endif
+
+#ifdef USE_FLAKE_NOISE
+	float spec_dot = saturate(dot(flake_spec_reflection, cmLocalDirectionMatrix[0].xyz));
+#else
+	float spec_dot = saturate(dot(reflection_local, cmLocalDirectionMatrix[0].xyz));
+#endif
+
+	spec_dot = pow(spec_dot, kPowerSpecular);
+	float SpecScaleBase = 1 - min(diffuse_sample.w, kBaseSpecularScale);
+	float3 spec_col = cmLocalColourMatrix[0].xyz * (kSpecFallOffColor + (kSpecHotSpotColor*spec_dot));
+
+#ifdef USE_VINYL
+	float v_p = saturate(lerp (SpecScaleBase, SpecScaleBase+kVinylSpecularScale, vinyl_sample.w));
+#else
+	float v_p = SpecScaleBase;
+#endif
+
+	spec_col *= spec_dot * v_p;
+
+#ifdef USE_DAMAGE
+	scratch.xyz *= (shaper.xyz * 2);
+	scratch.xyz += (spec_col*(1-sc)*7);
+#endif
+
+	// Total up the final colour
+	float4	OUT = float4(0,0,0,diffuse_final.w * kCarFadeOutScale);
+
+	real ambient_occl = IN.uv_occ_bias.z;
+
+	//loose the spec in the shadowed areas
+	// TO KK: figure out if we need a range adjustment to match the intensity of the environment shadows...
+	//shadow = (shadow - 0.5) * 2;
+
+	//$$hack to lower the envmap contribution (b/c of linear light changes -- needs art tuning, then removal)
+#ifdef HighLod
+		float env_color_w = IN.normal.w;
+		#ifdef GAMMA_TO_LINEAR
+			env_color_w *= .4;
+		#endif
+#elif defined( LowLod )
+	float env_color_w = IN.view_direction.w;
+#endif
+
+#ifdef USE_DAMAGE
+	OUT.xyz += spec_col * sc * ambient_occl * shadow;
+	OUT.xyz	+= lerp(scratch.xyz, diffuse_final.xyz, sc) * ambient_occl;
+#else
+	OUT.xyz += spec_col * ambient_occl * shadow;
+	OUT.xyz	+= diffuse_final.xyz * ambient_occl;
+#endif
+	OUT.xyz	+= envmap_color * ambient_occl * env_color_w * saturate(shadow+.5);
+
+#ifdef VFOG
+	OUT.xyz = CalcFogColour(OUT.xyz, IN.fog);
+#endif
+	OUT.xyz = GammaCompress(OUT.xyz); 
+
+#if defined(HighLod) &amp;&amp; defined(ENVMAP_TESTING)
+	OUT.xyz = OUT.xyz * 0.00001 + envmap_sample.xyz;
+#endif
+
+	OUT.xyz  = CompressColourSpace(OUT.xyz);
+
+	return OUT;
+}
+
+#endif
+
+// mirror back
+
+// PS_CarVinyl doesnt support USE_TANGENT
+#if defined( USE_VINYL ) &amp;&amp; !defined( USE_TANGENT ) &amp;&amp; defined( USE_VINYL_ONLY )
+float4	SHADERLOD( PS_CarVinyl, SELECTLOD)(const INPUTLOD(PS_INPUT,SELECTLOD) IN, const float vinyl_y : TEXCOORD6)
+{
+	float multitexture = cvVinylScales.w;
+
+#if defined( HighLod )
+	float3 normal = normalize(IN.normal.xyz);
+	float n_dot_l = saturate(dot(cmLocalDirectionMatrix[0].xyz, normal));
+#endif
+
+	// Texture Samples
+	float4	diffuse_sample		= cartex2D(DIFFUSE_SAMPLER,	IN.uv_occ_bias);
+	diffuse_sample.xyz			= GammaExpand(diffuse_sample.xyz);
+	float4 vinyl_uv = IN.uv_occ_bias;
+	vinyl_uv.y = vinyl_y;
+	float4	vinyl_sample		= cartex2D(AMBIENT_SAMPLER,	vinyl_uv);
+
+#ifdef HighLod
+	float3	view_direction		= normalize(IN.view.xyz);
+	#ifdef USE_FLAKE_NOISE
+		float3	flake_spec_normal		= GetNoiseNormal(IN, normal);
+		float3	flake_spec_reflection	= reflect  (-view_direction, flake_spec_normal );
+	#endif
+	float3 reflection_local = reflect(-view_direction, normal);
+	float3 reflection_world = mul(reflection_local, (float3x3)cmWorldMat);
+#else
+	float3 reflection_local = normalize(IN.reflection.xyz);
+	float3 reflection_world = reflection_local;
+#endif
+
+	// Vinyl Scales
+	float	diffuse_vinyl_scale			= min(vinyl_sample.w, 1 - kDiffuseScale);
+	float	SpecScaleBase				= 1.0f - clamp(diffuse_sample.w, 0.0f, kBaseSpecularScale);
+	float	envmap_vinyl_scale			= 1.0f - clamp(diffuse_sample.w, 0.0f, kBaseEnvmapScale);
+
+	float	spec_map	= 1.0 - min(diffuse_sample.w, multitexture);
+
+	// Diffuse
+	float4	diffuse_paint;
+	float4	diffuse_texture;
+	float4	diffuse_base;
+	float4	diffuse_vinyl;
+	float4	diffuse_final;
+
+	// Diffuse Vinyl min/max or Paint min/max
+	float4	diffuse_light		= lerp( float4(IN.envmap_scale.w,IN.envmap_scale.w,IN.envmap_scale.w,0), IN.diffuse, kDiffuseScale );
+
+	diffuse_paint				= IN.diffuse;
+	diffuse_texture				= IN.diffuse * diffuse_sample;
+	diffuse_base				= lerp(diffuse_paint, diffuse_texture, multitexture);
+
+	diffuse_vinyl.xyz			= diffuse_light.xyz * vinyl_sample.xyz;
+	diffuse_vinyl.w				= vinyl_sample.w * saturate(diffuse_sample.w*4);
+
+	diffuse_final.xyzw			= lerp(diffuse_base.xyzw, diffuse_vinyl.xyzw, diffuse_vinyl_scale);
+
+#ifdef USE_VINYL
+	float mipmapblurlevel		= lerp(kEnvmapMipLevel, kEnvmapMipLevelVinyl, vinyl_sample.w);	
+#else
+	float mipmapblurlevel		= kEnvmapMipLevel;
+#endif
+
+	// Envmap
+	float4 envmap_sample = EnvironmentMapLookup_Car(reflection_world, mipmapblurlevel);
+	envmap_sample.xyz			= DeCompressColourSpace(envmap_sample.xyz);
+
+	float3	envmap_color		= envmap_vinyl_scale * spec_map * (envmap_sample.xyz * IN.envmap_scale.xyz);
+
+	// Specular
+#if defined( USE_FLAKE_NOISE ) &amp;&amp; defined( HighLod )
+	float spec_dot = saturate(dot(flake_spec_reflection, cmLocalDirectionMatrix[0].xyz));
+#else
+	float spec_dot = saturate(dot(reflection_local, cmLocalDirectionMatrix[0].xyz));
+#endif
+
+	spec_dot = pow(spec_dot, kPowerSpecular);
+	float3 spec_col = cmLocalColourMatrix[0].xyz * (cvSpecularMin.xyz + (cvSpecularRange.xyz*spec_dot ));
+
+#ifdef USE_VINYL
+	float v_p = saturate(lerp (SpecScaleBase, SpecScaleBase+kVinylSpecularScale, vinyl_sample.w));
+#else
+	float v_p = SpecScaleBase;
+#endif
+
+	spec_col *= v_p * spec_map * spec_dot;
+
+#ifdef HighLod
+	float shadow = DoShadowOptimized( IN.shadow_tex, n_dot_l, 0 )/4;
+#else
+	float shadow = 1.f;
+#endif
+
+	// Total up the final colour
+	float4	OUT = float4(0,0,0, diffuse_final.w * kCarFadeOutScale);
+
+	float ambient_occl = IN.uv_occ_bias.z;
+
+#ifdef HighLod 
+	float env_color_w = IN.normal.w;
+#else
+	float env_color_w = IN.reflection.w;
+#endif
+
+	OUT.xyz += spec_col * ambient_occl;
+	OUT.xyz	+= diffuse_final.xyz * shadow * ambient_occl;
+	OUT.xyz	+= envmap_color * env_color_w * ambient_occl;
+
+#ifdef VFOG
+	OUT.xyz = CalcFogColour(OUT.xyz, IN.fog);
+#endif
+
+	OUT.xyz = GammaCompress(OUT.xyz); 
+
+#if defined(HighLod) &amp;&amp; defined(ENVMAP_TESTING)
+	OUT.xyz = OUT.xyz * 0.00001 + envmap_sample.xyz;
+#endif
+
+	OUT.xyz = CompressColourSpace(OUT.xyz);
+
+	return OUT;
+}
+#endif
+
+#undef SELECTLOD 
+#undef SHADERLOD
+#undef INPUTLOD
+
+#undef INTERPOL_POS0	
+#undef INTERPOL_COL0	
+#undef INTERPOL_COL1	
+#undef INTERPOL_TEX0	
+#undef INTERPOL_TEX1	
+#undef INTERPOL_TEX2	
+#undef INTERPOL_TEX3	
+#undef INTERPOL_TEX4	
+#undef INTERPOL_TEX5
+#undef INTERPOL_FOG	
+#undef HIGHONLYARG
+#undef VINYL_OUTPUT 
+#undef ENVMAP_CUBE
+</file>
+  <file id="11" path="C:\D1017315-LeigpzigDemo\MW2\Branches\LeipzigDemo\Speed\Indep\Src\Render\effects\common\mw2_shadow_csm.h" time="01c8f9c0-c76d0f4e">
+#ifndef _MW2_SHADOW_CSM_H
+#define _MW2_SHADOW_CSM_H
+
+/********************************************************************
+	file:		mw2_shadow_csm.h
+	purpose:	techniques for CSM shadows
+*********************************************************************/
+
+#ifdef ALPHA
+#ifndef SHADOW_SAMPLER
+#define SHADOW_SAMPLER OPACITY_SAMPLER
+#endif
+#endif
+
+#ifndef SHADOW_SAMPLER_CHANNEL
+#define SHADOW_SAMPLER_CHANNEL b
+#endif
+
+float4x4 cmCSMTransform : REG_cmCSMTransform;
+
+struct CSM_PS_INPUT
+{
+	float4 position		: POSITION;
+#ifdef PLAT_PC
+	float  depth		: TEXCOORD0;
+#endif
+#ifdef ALPHA
+	float2 diffuseTex	: TEXCOORD1;
+#endif
+};
+
+#ifdef ALPHA
+CSM_PS_INPUT VSCSM( float4 position : POSITION, const float2 texUV : TEXCOORD0 )
+#else
+CSM_PS_INPUT VSCSM( float4 position : POSITION )
+#endif
+{
+	CSM_PS_INPUT OUT;
+
+#if defined(CAR_SHADER) &amp;&amp; defined(PLAT_PC)
+	position = position * 10.f;
+#endif
+	position.w = 1.0f;
+	position = mul( cmWorldMatTranspose, position );
+	position = mul( position, cmCSMTransform );
+
+	OUT.position = position;
+#ifdef PLAT_PC
+	OUT.position.y = -OUT.position.y;
+	OUT.depth = position.z; 
+#endif
+#ifdef ALPHA
+#ifdef CAR_SHADER
+	OUT.diffuseTex.xy = texUV.xy;
+#else
+	OUT.diffuseTex.xy = DeCompressTextCoords(texUV.xy);
+#endif
+#endif
+
+	return OUT;
+}
+
+#if defined( PLAT_PC ) || defined( ALPHA )
+float4 PSCSM( const CSM_PS_INPUT input ) : COLOR0
+{
+#ifdef ALPHA
+	float4 v_tex = tex2D( SHADOW_SAMPLER, input.diffuseTex );
+	clip( v_tex.SHADOW_SAMPLER_CHANNEL - 0.2 );
+#endif
+#ifdef PC
+	return float4( input.depth, input.depth, input.depth, input.depth );
+#else
+	return 0.0f;
+#endif
+}
+#endif
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+technique RenderCSM
+&lt;
+	string viewtag = "SHADOW";
+	string lostag = "ANY";
+&gt;
+{
+	pass p0
+	&lt;
+		string depthstencil = "default";
+		string blend = "default";
+		string rasterizer = "default";
+	&gt;
+	{
+		VertexShader = compile vs_2_0 VSCSM();
+#if defined( PLAT_PC ) || defined( ALPHA )
+		PixelShader = compile ps_2_0 PSCSM();
+#else
+		PixelShader = NULL;
+#endif
+	}
+}
+
+#endif
+</file>
+ </files>
+ <tool name="Compiler">
+  <defines>
+   <define name="SHADER_DEBUG" value="" />
+   <define name="PLAT_XENON" value="" />
+   <define name="SHADERMODEL_3_0" value="" />
+  </defines>
+  <arguments>
+   <argument name="/Zi" value="false" />
+   <argument name="/Vd" value="false" />
+   <argument name="/Xu0_deprecated" value="false" />
+   <argument name="/Odu_deprecated" value="false" />
+   <argument name="/XOd_" value="false" />
+   <argument name="/XOu" value="false" />
+   <argument name="/Xmaxtempreg" value="0" />
+   <argument name="PsSampBase" value="0" />
+   <argument name="PsSampCount" value="0" />
+   <argument name="VsSampBase" value="0" />
+   <argument name="VsSampCount" value="0" />
+   <argument name="VsInstCount" value="0" />
+   <argument name="PsInstCount" value="0" />
+   <argument name="/Od" value="false" />
+   <argument name="/Zpr" value="true" />
+   <argument name="/Zpc" value="false" />
+   <argument name="/Gpp" value="false" />
+   <argument name="/Op" value="false" />
+   <argument name="/Gfa" value="false" />
+   <argument name="/Gfp" value="true" />
+   <argument name="/XZc:zeroInit" value="false" />
+   <argument name="/XVe" value="false" />
+   <argument name="/Xbe:3-" value="false" />
+   <argument name="/Xbe:1-" value="false" />
+   <argument name="/XQInomaskedexports" value="false" />
+   <argument name="/XOautoz" value="false" />
+  </arguments>
+ </tool>
+ <shaders>
+  <shader entrypoint="VS_NoPaletteHigh" target="vs_3_0" ZPass="0" pdbHint="4e4a0000-1b6667f1-2ae0b5c5">
+   <constanttable>
+    <constant register="c244">
+     <type name="cfScaleUVs" class="scalar" type="float" />
+    </constant>
+    <constant register="c4" count="4">
+     <type name="cmWorldMat" class="matrix_rows" type="float" rows="4" columns="4" />
+    </constant>
+    <constant register="c24" count="4">
+     <type name="cmWorldViewProj" class="matrix_rows" type="float" rows="4" columns="4" />
+    </constant>
+    <constant register="c237">
+     <type name="cvClampAndScales" class="vector" type="float" columns="4" />
+    </constant>
+    <constant register="c230">
+     <type name="cvEnvmapMin" class="vector" type="float" columns="4" />
+    </constant>
+    <constant register="c231">
+     <type name="cvEnvmapRange" class="vector" type="float" columns="4" />
+    </constant>
+    <constant register="c238">
+     <type name="cvFlakes" class="vector" type="float" columns="4" />
+    </constant>
+    <constant register="c32">
+     <type name="cvLocalEyePos" class="vector" type="float" columns="4" />
+    </constant>
+    <constant register="c236">
+     <type name="cvPowers" class="vector" type="float" columns="4" />
+    </constant>
+   </constanttable>
+   <sourcemap>
+    <statement pc="4" file="0" line="162" scope="-1" lastinstruction="0" />
+    <statement pc="5" file="0" line="162" scope="-1" lastinstruction="0" />
+    <statement pc="6" file="0" line="162" scope="-1" lastinstruction="0" />
+    <statement pc="7" file="0" line="162" scope="-1" lastinstruction="0" />
+    <statement pc="8" file="0" line="162" scope="-1" lastinstruction="0" />
+    <statement pc="0.1" file="0" line="162" scope="-1" lastinstruction="0" />
+    <statement pc="9" file="1" line="30" scope="-1" lastinstruction="0" />
+    <statement pc="10" file="1" line="30" scope="-1" lastinstruction="0" />
+    <statement pc="11" file="1" line="30" scope="-1" lastinstruction="0" />
+    <statement pc="1.1" file="1" line="30" scope="-1" lastinstruction="0" />
+    <statement pc="12" file="10" line="250" scope="-1" lastinstruction="0" />
+    <statement pc="13" file="6" line="71" scope="-1" lastinstruction="0" />
+    <statement pc="14" file="6" line="71" scope="-1" lastinstruction="0" />
+    <statement pc="15" file="10" line="251" scope="-1" lastinstruction="0" />
+    <statement pc="16" file="10" line="220" scope="-1" lastinstruction="0" />
+    <statement pc="17" file="10" line="252" scope="-1" lastinstruction="0" />
+    <statement pc="18" file="0" line="164" scope="-1" lastinstruction="0" />
+    <statement pc="19" file="6" line="71" scope="-1" lastinstruction="0" />
+    <statement pc="20" file="0" line="164" scope="-1" lastinstruction="0" />
+    <statement pc="21" file="10" line="288" scope="-1" lastinstruction="0" />
+    <statement pc="22" file="10" line="252" scope="-1" lastinstruction="0" />
+    <statement pc="23" file="10" line="294" scope="-1" lastinstruction="0" />
+    <statement pc="24" file="10" line="289" scope="-1" lastinstruction="0" />
+    <statement pc="25" file="10" line="317" scope="-1" lastinstruction="0" />
+    <statement pc="26" file="0" line="164" scope="-1" lastinstruction="0" />
+    <statement pc="27" file="10" line="317" scope="-1" lastinstruction="0" />
+    <statement pc="28" file="10" line="317" scope="-1" lastinstruction="0" />
+    <statement pc="29" file="10" line="317" scope="-1" lastinstruction="0" />
+    <statement pc="30" file="10" line="319" scope="-1" lastinstruction="0" />
+    <statement pc="31" file="10" line="252" scope="-1" lastinstruction="0" />
+    <statement pc="32" file="10" line="291" scope="-1" lastinstruction="0" />
+    <statement pc="33" file="10" line="319" scope="-1" lastinstruction="0" />
+    <statement pc="34" file="0" line="164" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="VSCSM" retID="508">
+     <parameter id="507" />
+    </function>
+    <function id="1" name="VS_NoPaletteLowPara" retID="483">
+     <parameter id="482" />
+    </function>
+    <function id="2" name="VS_NoPaletteLow" retID="481">
+     <parameter id="480" />
+    </function>
+    <function id="3" name="VS_PaletteLowPara" retID="479">
+     <parameter id="478" />
+    </function>
+    <function id="4" name="VS_PaletteLow" retID="477">
+     <parameter id="476" />
+    </function>
+    <function id="5" name="PS_Low" retID="475">
+     <parameter id="474" />
+    </function>
+    <function id="6" name="PS_CarNormalMapLow" retID="450">
+     <parameter id="448" />
+     <parameter id="449" />
+     <parameter id="0" />
+    </function>
+    <function id="7" name="PS_CarLow" retID="434">
+     <parameter id="431" />
+     <parameter id="432" />
+     <parameter id="433" />
+    </function>
+    <function id="8" name="VS_CarLow" retID="420">
+     <parameter id="416" />
+     <parameter id="417" />
+     <parameter id="418" />
+     <parameter id="419" />
+    </function>
+    <function id="9" name="VS_NoPaletteHighPara" retID="387">
+     <parameter id="386" />
+    </function>
+    <function id="10" name="VS_NoPaletteHigh" retID="385">
+     <parameter id="384" />
+    </function>
+    <function id="11" name="VS_PaletteHighPara" retID="383">
+     <parameter id="382" />
+    </function>
+    <function id="12" name="VS_PaletteHigh" retID="381">
+     <parameter id="380" />
+    </function>
+    <function id="13" name="PS_High" retID="379">
+     <parameter id="378" />
+    </function>
+    <function id="14" name="PS_CarNormalMapHigh" retID="355">
+     <parameter id="353" />
+     <parameter id="354" />
+     <parameter id="0" />
+    </function>
+    <function id="15" name="VS_CarHigh" retID="340">
+     <parameter id="336" />
+     <parameter id="337" />
+     <parameter id="338" />
+     <parameter id="339" />
+    </function>
+    <function id="16" name="GetDamagedNormal" retID="330">
+     <parameter id="329" />
+    </function>
+    <function id="17" name="CalculateShaperRigDiffuse" retID="315">
+     <parameter id="313" />
+     <parameter id="314" />
+    </function>
+    <function id="18" name="CalculateShaperRigDiffuseBase" retID="310">
+     <parameter id="307" />
+     <parameter id="308" />
+     <parameter id="309" />
+    </function>
+    <function id="19" name="CalculateShaperRigDiffuseShadowed" retID="304">
+     <parameter id="300" />
+     <parameter id="301" />
+     <parameter id="302" />
+     <parameter id="303" />
+     <parameter id="0" />
+    </function>
+    <function id="20" name="EvaluateIlluminationSH" retID="296">
+     <parameter id="295" />
+    </function>
+    <function id="21" name="ReadPositionNormalTangent" retID="293">
+     <parameter id="287" />
+     <parameter id="288" />
+     <parameter id="289" />
+     <parameter id="290" />
+     <parameter id="291" />
+     <parameter id="292" />
+    </function>
+    <function id="22" name="GetLocalTangent" retID="285">
+     <parameter id="283" />
+     <parameter id="284" />
+    </function>
+    <function id="23" name="GetLocalTangent" retID="281">
+     <parameter id="280" />
+    </function>
+    <function id="24" name="GetLocalNormal" retID="279">
+     <parameter id="277" />
+     <parameter id="278" />
+    </function>
+    <function id="25" name="GetLocalNormal" retID="276">
+     <parameter id="275" />
+    </function>
+    <function id="26" name="GetLocalPosition" retID="274">
+     <parameter id="272" />
+     <parameter id="273" />
+    </function>
+    <function id="27" name="GetLocalPosition" retID="271">
+     <parameter id="270" />
+    </function>
+    <function id="28" name="GetMatrix" retID="268">
+     <parameter id="265" />
+     <parameter id="266" />
+     <parameter id="267" />
+    </function>
+    <function id="29" name="GammaExpand" retID="226">
+     <parameter id="225" />
+    </function>
+    <function id="30" name="GammaCompress" retID="224">
+     <parameter id="223" />
+    </function>
+    <function id="31" name="DoShadowCar" retID="222">
+     <parameter id="219" />
+     <parameter id="220" />
+     <parameter id="221" />
+     <parameter id="0" />
+    </function>
+    <function id="32" name="DoShadowOptimized" retID="218">
+     <parameter id="214" />
+     <parameter id="215" />
+     <parameter id="216" />
+     <parameter id="217" />
+     <parameter id="0" />
+    </function>
+    <function id="33" name="DoShadowPCF" retID="211">
+     <parameter id="207" />
+     <parameter id="208" />
+     <parameter id="209" />
+     <parameter id="210" />
+     <parameter id="0" />
+    </function>
+    <function id="34" name="DoShadow" retID="204">
+     <parameter id="201" />
+     <parameter id="202" />
+     <parameter id="203" />
+     <parameter id="0" />
+    </function>
+    <function id="35" name="DoCSM3ShadowPCF" retID="190">
+     <parameter id="189" />
+    </function>
+    <function id="36" name="SamplePCF" retID="185">
+     <parameter id="183" />
+     <parameter id="184" />
+    </function>
+    <function id="37" name="GetEdgeContrast" retID="179">
+     <parameter id="178" />
+    </function>
+    <function id="38" name="Tex2DOffset" retID="169">
+     <parameter id="166" />
+     <parameter id="167" />
+     <parameter id="168" />
+    </function>
+    <function id="39" name="VertexShadowTexOptimized" retID="165">
+     <parameter id="161" />
+     <parameter id="162" />
+     <parameter id="163" />
+     <parameter id="164" />
+    </function>
+    <function id="40" name="VertexShadowTex" retID="160">
+     <parameter id="158" />
+     <parameter id="159" />
+    </function>
+    <function id="41" name="CalculateShadowFade" retID="156">
+     <parameter id="155" />
+    </function>
+    <function id="42" name="DepthSampleDepth" retID="143">
+     <parameter id="141" />
+     <parameter id="142" />
+    </function>
+    <function id="43" name="DecodeRGBE8" retID="134">
+     <parameter id="133" />
+    </function>
+    <function id="44" name="EncodeRGBE8" retID="129">
+     <parameter id="128" />
+    </function>
+    <function id="45" name="DeCompressTextCoords" retID="127">
+     <parameter id="126" />
+    </function>
+    <function id="46" name="DeCompressColourSpace" retID="125">
+     <parameter id="124" />
+    </function>
+    <function id="47" name="CompressColourSpace" retID="123">
+     <parameter id="122" />
+    </function>
+    <function id="48" name="world_position" retID="121">
+     <parameter id="118" />
+     <parameter id="119" />
+     <parameter id="120" />
+    </function>
+    <function id="49" name="world_position" retID="117">
+     <parameter id="115" />
+     <parameter id="116" />
+    </function>
+    <function id="50" name="world_cartesian_position" retID="113">
+     <parameter id="112" />
+    </function>
+    <function id="51" name="world_paraboloid_position" retID="109">
+     <parameter id="108" />
+    </function>
+    <function id="52" name="EnvironmentMapLookup_Paraboloid_MipLevel" retID="102">
+     <parameter id="98" />
+     <parameter id="99" />
+     <parameter id="100" />
+     <parameter id="101" />
+    </function>
+    <function id="53" name="EnvironmentMapLookup_Paraboloid" retID="92">
+     <parameter id="89" />
+     <parameter id="90" />
+     <parameter id="91" />
+    </function>
+    <function id="54" name="EnvironmentMapLookup_ParaboloidUVUV" retID="84">
+     <parameter id="83" />
+    </function>
+    <function id="55" name="EnvironmentMapLookup_Paraboloid" retID="75">
+     <parameter id="72" />
+     <parameter id="73" />
+     <parameter id="74" />
+    </function>
+    <function id="56" name="EnvironmentMapLookup_Cube" retID="70">
+     <parameter id="67" />
+     <parameter id="68" />
+     <parameter id="69" />
+    </function>
+    <function id="57" name="EnvironmentMapLookup_Plane" retID="64">
+     <parameter id="61" />
+     <parameter id="62" />
+     <parameter id="63" />
+    </function>
+    <function id="58" name="valueOf" retID="32">
+     <parameter id="31" />
+    </function>
+    <function id="59" name="bias" retID="30">
+     <parameter id="28" />
+     <parameter id="29" />
+    </function>
+    <function id="60" name="NormalTransform" retID="26">
+     <parameter id="24" />
+     <parameter id="25" />
+    </function>
+    <function id="61" name="GetLocalEyePos" retID="23">
+     <parameter id="22" />
+    </function>
+    <function id="62" name="GetLocalLightDir" retID="21">
+     <parameter id="20" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+    <vfetch Address="4" Register="0" DestSwizzle="_yzx" Semantic="0x00" End="false" />
+    <vfetch Address="5" Register="3" DestSwizzle="__x_" Semantic="0xa0" End="false" />
+    <vfetch Address="6" Register="3" DestSwizzle="xy_0" Semantic="0x50" End="false" />
+    <vfetch Address="7" Register="1" DestSwizzle="xyz_" Semantic="0x30" End="false" />
+    <vfetch Address="8" Register="5" DestSwizzle="xyzw" Semantic="0x60" End="true" />
+   </VfetchInfo>
+   <InterpolatorInfo>
+    <Interpolator Register="0" Semantic="0xa1" Mask="xyzw" />
+    <Interpolator Register="1" Semantic="0x50" Mask="xyzw" />
+    <Interpolator Register="2" Semantic="0x51" Mask="xyzw" />
+    <Interpolator Register="3" Semantic="0x52" Mask="xyzw" />
+    <Interpolator Register="4" Semantic="0x53" Mask="xyzw" />
+    <Interpolator Register="5" Semantic="0x55" Mask="xyzw" />
+   </InterpolatorInfo>
+   <LiteralFloats>
+    <Float Register="252" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="253" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="254" value0="9.9999997e-005" value1="1" value2="0" value3="0" />
+    <Float Register="255" value0="1.2" value1="0.039999999" value2="0.1" value3="-0.25" />
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+ </shaders>
+</shader-pdb>

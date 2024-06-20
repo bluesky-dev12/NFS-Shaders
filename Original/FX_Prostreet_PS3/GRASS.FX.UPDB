@@ -1,0 +1,1095 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shader-pdb pdbHint="4e4a0001-93d2255e-12cb2802" version="6132">
+ <files>
+  <file id="0" path="D:\eax-build1-s09-xenon\Oban\Speed\Xenon\Src\Render\Shaders\grass.fx" time="01c7f8c7-b0f16f49">///////////////////////////////////////////////////////////////////////////////
+//
+// GRASS SHADER
+//
+// Use a shell technique to render volumetric grass
+//
+// Colin O'Connor
+// Nov-2004 
+//
+///////////////////////////////////////////////////////////////////////////////
+#include "global.h" 
+#include "lightscattering.h" 
+
+/*
+	STUB SHADER !!!!
+*/
+struct VS_INPUT
+{
+	float4 position		: POSITION;
+	float4 vertexCol	: COLOR0;
+	float4 tex			: TEXCOORD0;
+	float4 texlightmap	: TEXCOORD1;
+	float3 normal		: NORMAL;
+
+};
+
+float4 vertex_shader(const VS_INPUT IN) : POSITION
+{
+	return world_position(IN.position);
+}
+
+float4 pixel_shader() : COLOR0
+{
+	return float4(0, 1, 0, 1);	// hot green
+}
+
+technique grass_stub &lt;int shader = 1;&gt;
+{
+    pass p0
+    {
+		VertexShader = compile vs_1_1 vertex_shader();
+        PixelShader  = compile ps_2_0 pixel_shader();
+    }
+}
+
+/*
+///////////////////////////////////////////////////////////////////////////////
+// RUNTIME SETTINGS
+
+// These parameters should be set by the runtime engine
+shared float3	cvLocalEyePos		: REG_cvLocalEyePos; //LOCALEYEPOS;
+shared float4x4 cmWorldView			: REG_cmWorldView; //WORLDVIEW
+shared float4x4 cmWorldMat			: REG_cmWorldMat; //WORLDMAT;
+
+shared float4	cvLocalLightVec		: REG_cvLocalLightVec; //LOCALLIGHTDIRVECTOR;
+shared float4	cvSpecularColour	: REG_cvSpecularColour; //SPECULARCOLOUR;
+shared float	cfSpecularPower		: REG_cfSpecularPower; //SPECULARPOWER;
+shared float4	cvDiffuseColour		: REG_cvDiffuseColour; //DIFFUSECOLOUR; 
+
+///////////////////////////////////////////////////////////////////////////////
+// LIGHT MATERIAL TWEAKABLES 
+
+shared float4	cvGrassColour			: REG_cvGrassColour;
+shared float4x4 cmGrassParam			: REG_cmGrassParam;
+
+#define MAXSHELLS			cmGrassParam[0][0] 
+#define GRASSHEIGHT			cmGrassParam[0][1]
+#define DIFFUSESPACE		cmGrassParam[0][2]
+#define DIFFUSEMIPMAPBIAS	cmGrassParam[0][3] 
+
+#define NOISESPACE			cmGrassParam[1][0]
+#define NOISEMIPMAPBIAS		cmGrassParam[1][1]
+#define LOWNOISESPACE		cmGrassParam[1][2]
+#define LOWNOISEINTENSITY	cmGrassParam[1][3]
+
+#define SCRUFF				cmGrassParam[2][0]
+#define GRASSGAMMA			cmGrassParam[2][1]
+#define LODSTART			cmGrassParam[2][2]
+#define LODRAMP				cmGrassParam[2][3]
+
+
+#define  CURLTIGHTNESS		1.05f
+
+shared int	cbIsParallexMapped; //			: IS_PARALLEX_MAPPED;
+
+///////////////////////////////////////////////////////////////////////////////
+// TEXTURE SAMPLERS
+
+// For sampler state purposes, these samplers should be defined in the order listed 
+// in the eSolidPlat.hpp TextureMapsIndicies enum
+sampler DIFFUSE_SAMPLER = sampler_state 
+{
+    MIPFILTER = LINEAR;
+    MINFILTER = LINEAR;
+    MAGFILTER = LINEAR;
+};
+
+sampler NORMALMAP_SAMPLER = sampler_state
+{
+	MIPFILTER	= LINEAR;
+	MINFILTER	= LINEAR;
+	MAGFILTER	= LINEAR;
+};
+
+sampler SPECULARMAP_SAMPLER = sampler_state
+{
+	MIPFILTER	= LINEAR;
+	MINFILTER	= LINEAR;
+	MAGFILTER	= LINEAR;
+};
+
+sampler OPACITY_SAMPLER = sampler_state 
+{
+    MIPFILTER = LINEAR;
+    MINFILTER = LINEAR;
+    MAGFILTER = LINEAR;
+};
+
+sampler3D VOLUMEMAP_SAMPLER = sampler_state 
+{
+    AddressU  = WRAP;        
+    AddressV  = WRAP;
+    AddressW  = WRAP;
+    MIPFILTER = LINEAR;
+    MINFILTER = LINEAR;
+    MAGFILTER = LINEAR;
+};
+
+sampler MISCMAP1_SAMPLER = sampler_state // noise 3d sampler
+{
+    AddressU  = WRAP;        
+    AddressV  = WRAP;
+    MIPFILTER = LINEAR;
+    MINFILTER = LINEAR;
+    MAGFILTER = LINEAR;
+};
+
+
+///////////////////////////////////////////////////////////////////////////////
+// SHADER INPUT/OUTPUT STRUCTURES
+
+struct VS_INPUT
+{
+	float4 position : POSITION;
+	float3 normal	: NORMAL;
+	float4 color    : COLOR;
+	float4 tex		: TEXCOORD;
+	float4 tangent	: TANGENT;
+};
+
+struct VtoP
+{
+	float4 position		: POSITION;
+	float4 ambient		: COLOR0;
+	float4 diffuse		: COLOR1;
+	float3 FogMod		: COLOR2;
+	float3 FogAdd		: COLOR3;
+	float4 tex			: TEXCOORD0;
+	float3 Light		: TEXCOORD1;
+	float4 noiseUV		: TEXCOORD2;
+	float4 shadowTex	: TEXCOORD3;
+	float4 noise3DPos   : TEXCOORD4;
+	float3 normal		: TEXCOORD5;
+	float3 View			: TEXCOORD6;
+	float4 ProjCoord1	: TEXCOORD7_centroid;
+	float ClipCoord1	: TEXCOORD8;
+	float4 ProjCoord2	: TEXCOORD9_centroid;
+	float ClipCoord2	: TEXCOORD10;
+};
+
+struct PS_OUTPUT
+{
+	float4 color : COLOR0;
+};
+
+#include "shadowmap_fx_def.h"
+#include "headlights.h"
+
+///////////////////////////////////////////////////////////////////////////////
+// VERTEX SHADERS
+VtoP VertexShaderGrass(VS_INPUT IN, uniform float shellHeight, uniform int shellIndex) 
+{
+    VtoP OUT;
+
+	float3 position = IN.position.xyz;
+
+	// Specular calculations.  Default them to use non-tangent space
+	OUT.Light = cvLocalLightVec;
+	OUT.View.xyz = float3(cvLocalEyePos - position);
+
+	//
+	// Adjust the shell height down as the vertex moves away from the camera
+	// so we can transition to one shell at a distance and not have seams
+	//
+	float shellLODHeight = shellHeight * shellIndex;
+	float shellLODValue = 1;
+	float distFromCamera = length(OUT.View.xyz);
+	if( distFromCamera &gt; LODSTART )
+	{
+		shellLODHeight = 0;		
+		shellLODValue = 0;
+	}
+
+	//
+	// Offset the vertex shell in the direction of the eye position.  This eliminates
+	// seams related to sorting order
+	//
+	float3 viewNormal = normalize(OUT.View.xyz);
+	float heightScale = clamp(1.0f / dot(IN.normal, viewNormal), 1, 40);
+	
+	float3 P = position + heightScale * viewNormal * shellLODHeight;
+	float4 p = float4(P, 1.0f);
+	OUT.position = world_position(p);
+
+	OUT.shadowTex = vertex_shadow_tex( IN.position );
+
+	//
+	// Offset the uv back torwards the normal so the grass grows up the normal axis
+	// not towards the eye position
+	//
+	float3 uvoffset = (IN.normal - heightScale * viewNormal) * shellLODHeight;
+	
+	float scruffOffset = shellIndex ? shellIndex / MAXSHELLS : 1;
+	OUT.tex = float4(DIFFUSESPACE * IN.tex.xy, OUT.position.w, scruffOffset * SCRUFF);
+	// Build the high and low noise UV set using world position
+	float4 worldPos = mul(float4(position, 1.0f), cmWorldMat);
+	OUT.noiseUV = float4(worldPos.xy*LOWNOISESPACE, (IN.position.xy+uvoffset.xy)*NOISESPACE);
+	
+	OUT.noise3DPos.xyz = CURLTIGHTNESS * P * NOISESPACE; 
+	OUT.ambient	= IN.color * float4(cvAmbientColour.xyz * cvAmbientColour.w, 1.0f);
+	
+	float ndotL = saturate(dot(IN.normal, cvLocalLightVec));
+	OUT.diffuse = (ndotL * cvDiffuseColour);
+	OUT.normal = IN.normal;
+
+  	OUT.noise3DPos.w = shellLODValue;
+
+	float dist = mul(IN.position, cmWorldView).z;
+	float cos_theta = dot(normalize(cvLocalLightVec), viewNormal);
+	CalcFog(dist, cos_theta, OUT.FogAdd.xyz, OUT.FogMod.xyz);
+	if( shellIndex &gt; 0 )
+	{
+		OUT.ambient = float4(0, 0, 0, 1); 
+	}
+
+    // The code below is a bit magical. It assumes a far clip plane of the headlight-projection to be 100
+    // So anything beyond 100 will be clamped to 1.0 in the texture
+    // Anything behind the far (-z) will be less than 0.5 (which in the texture that we created in eInitHeadlightEffect() will also be zero
+	OUT.ProjCoord1 = 0;//mul(IN.position, cmHeadlight1WVP);
+    OUT.ClipCoord1  = 0;//(OUT.ProjCoord1.w * 0.005f) + 0.5f;
+   	OUT.ProjCoord2 = 0;//mul(IN.position, cmHeadlight2WVP);
+    OUT.ClipCoord2  = 0;//(OUT.ProjCoord2.w * 0.005f) + 0.5f;
+    
+    return OUT;
+}
+
+// These tables supply coefficients to the pixel shader to try and correct
+// colour discrepencies between rendering with 1 shell or 5 shells
+//
+static const float AmbientShellTable[6] = { 0, 0.300, 0.275, 0.250, 0.225, 0.200 };
+static const float AmbientNoiseTable[6] = { 0, 1.000, 0.450, 0.270, 0.220, 0.160 };
+static const float DiffuseShellTable[6] = { 0, 1.200, 1.225, 1.250, 1.075, 1.200 };
+
+float4 PixelShaderGrass( VtoP IN, uniform int shellIndex): COLOR
+{
+	float shadow = DoShadow( IN.shadowTex, 1 );
+	float3 headlight_colour = 0;//CalcHeadlight1Colour(IN.ProjCoord1, IN.ClipCoord1);
+	//headlight_colour += CalcHeadlight2Colour(IN.ProjCoord2, IN.ClipCoord2);
+	
+	//
+	// Determine LOD shell information.  IN.noise3DPos.w yields a float between 0 and 1 that
+	// determines the desired LOD - 0 is the lowest, 1 is the highest. 
+	//		LOD 0: only render layer 0
+	//		LOD 1: render all MAXSHELL layers
+	int isMaxLod = (IN.noise3DPos.w &gt; 0) ? 1 : 0;//clamp(IN.noise3DPos.w, 0, NUM_LODS-1);
+	if( isMaxLod || (isMaxLod == 0 &amp;&amp; shellIndex == 0))
+	{
+		//
+		// APPLY 3D NOISE OFFSET TO UV
+		//
+		
+		// Offset set uv's according to a 3d vector defined by a noise 3D lookup texture.  This
+		// gives the effect of "growing" the grass blades in different directions
+		float4 noise3d = tex3D(VOLUMEMAP_SAMPLER, IN.noise3DPos.xyz) - 0.5f;
+		float2 offsetUV = IN.noiseUV.zw + IN.tex.w * noise3d;
+		
+		// Shell ambient influence
+		int numShellsAtLOD = isMaxLod ? MAXSHELLS : 1;
+		float kAmbientShell = AmbientShellTable[numShellsAtLOD];
+		float kAmbientNoise = AmbientNoiseTable[numShellsAtLOD];
+		float kDiffuseShell = DiffuseShellTable[numShellsAtLOD];
+		
+		// 
+		// EXTRACT INFORMATION FROM TEXTURES
+		//
+		float3 grassBlendColour = cvGrassColour / numShellsAtLOD; 
+		// Extract High frequency noise from the x channel in noise2d texture
+		float highNoiseTexture = tex2Dbias( MISCMAP1_SAMPLER, float4(offsetUV.xy, 0.0, NOISEMIPMAPBIAS) ).x; 
+		float4 highNoiseColour = float4(grassBlendColour.xyz, cvGrassColour.w) * highNoiseTexture;
+		// Extract a Low Frequency noise from the y channel in noise2d texture 
+		float lowNoiseValue = tex2D( MISCMAP1_SAMPLER, IN.noiseUV.xy ).y; 
+		lowNoiseValue = (lowNoiseValue - 0.5f) * LOWNOISEINTENSITY;
+		float4 lowNoiseColour = float4(grassBlendColour.xyz, cvGrassColour.w) * lowNoiseValue;
+		// Extract colour from diffuse map
+		float4 diffuseTexture = tex2Dbias( DIFFUSE_SAMPLER, float4(IN.tex.xy, 0.0, DIFFUSEMIPMAPBIAS) );
+
+		//				
+		// DIFFUSE COLOUR COMPONENT
+		//
+		
+		// Basic diffuse calculation
+		float4 diffuse = IN.diffuse * kDiffuseShell * diffuseTexture;
+		// Modulate with high noise frquencency
+		diffuse *= highNoiseColour;
+		// Modulate with shadow
+		diffuse.xyz *= shadow;
+
+		//	
+		// AMBIENT COLOUR COMPONENT
+		//
+		
+		// Add a percentage of high noise into the ambient to give contrast and texture in the shadows.  Add
+		// more in when rendering fewer shells
+
+		// (michael riegger - I'm assuming that the headlights are most appropriate with the ambient, since diffuse is directional and may be from a direction
+		// different from wherever the headlight's light is coming from
+		
+		float4 ambient = IN.ambient + highNoiseColour*kAmbientNoise + float4(headlight_colour, 1.0);
+		// Modulate with the shell index to darken the bottom and and brighten the top
+		ambient *= (shellIndex+kAmbientShell);
+		// Add in the low noise frequency to provide soft variation over large areas
+		ambient += lowNoiseColour;
+		// Modulate with the diffuse texture	
+		ambient *= diffuseTexture;
+
+		// Combine 
+		float4 result = ambient + diffuse;
+		
+		// PSX gamma correction
+		result.xyz *= 2;
+
+		if( MAXSHELLS == 1 )
+		{
+			//result.xyz *= IN.FogMod;
+			//result.xyz += IN.FogAdd;
+		}
+	
+
+		// The blend mode is colour addition so set the alpha to one to add all this colour
+		result.w = cvGrassColour.w;
+
+		return result;
+	}
+	else
+	{
+		clip(-1);
+		return 0;
+	}
+}
+
+float4 ParallexMapped(float3 ray, const VtoP IN)
+{
+	const float heightDepth = 0.075f;
+	float height = tex2D(NORMALMAP_SAMPLER, IN.tex.xy).w*2;
+	//float height = tex2Dbias(NORMALMAP_SAMPLER, IN.tex).w*2;
+    float heightScaled = height * heightDepth - heightDepth * 0.5;
+	float4 offsetTex = IN.tex;
+	offsetTex.xy += ray.xy * heightScaled;  
+	return offsetTex;
+}
+
+float4 PixelShaderWorldNormal( VtoP IN): COLOR
+{
+    float3 viewDir	= normalize(IN.View);	// V
+	// Offset parallex mapping
+	float4 tex = float4(IN.tex.xy, 0, -1);
+	if( cbIsParallexMapped )	
+	{
+		tex = ParallexMapped(viewDir, IN);
+	}
+	
+	float4 base		= tex2Dbias(DIFFUSE_SAMPLER, tex); //diffuse map
+	float3 norm		= tex2Dbias(NORMALMAP_SAMPLER, tex); // normal map
+	float3 specMap	= tex2Dbias(SPECULARMAP_SAMPLER, tex); // normal map
+	float4 shadow	= DoShadow( IN.shadowTex, 1 ); //shadow map
+
+	//convert between unsigned and signed normal map data
+	norm = (norm - 0.5)*2;
+	
+	norm = normalize(norm);
+	
+	float3 lightDir	= normalize(IN.Light);	// L
+
+    float ndotL = dot(norm, lightDir);	
+	float diff	= saturate(ndotL);
+	
+	float3 reflection = 2*ndotL*norm - lightDir;
+	
+	float specular = saturate(dot(reflection, viewDir)); //specular comp.
+	specular = pow(specular, cfSpecularPower);
+
+	float shadowMult	= saturate(4 * dot(IN.normal, cvLocalLightVec));				// compute self-shadowing term 
+
+	float4 result = base * diff * cvDiffuseColour;	//diffuse
+	result.xyz += specular * cvSpecularColour * specMap;	
+	result.xyz *= shadowMult * shadow;
+	result.xyz += base * IN.ambient;				//ambient
+	result.xyz *= 2;
+	//result.xyz *= IN.FogMod;
+	//result.xyz += IN.FogAdd;
+
+	result.w = base.w;
+
+	return result;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// GRASS TECHNIQUE
+//
+
+technique Grass
+{
+    pass Shell0
+    {		
+		VertexShader = compile vs_2_0 VertexShaderGrass(GRASSHEIGHT/MAXSHELLS, 0);
+		PixelShader  = compile ps_3_0 PixelShaderGrass(0);
+    }
+    pass Shell1
+    {		
+		VertexShader = compile vs_2_0 VertexShaderGrass(GRASSHEIGHT/MAXSHELLS, 1);
+		PixelShader  = compile ps_3_0 PixelShaderGrass(1);
+    }
+    pass Shell2
+    {		
+		VertexShader = compile vs_2_0 VertexShaderGrass(GRASSHEIGHT/MAXSHELLS, 2);
+		PixelShader  = compile ps_3_0 PixelShaderGrass(2);
+    }
+    pass Shell3
+    {		
+		VertexShader = compile vs_2_0 VertexShaderGrass(GRASSHEIGHT/MAXSHELLS, 3);
+		PixelShader  = compile ps_3_0 PixelShaderGrass(3);
+    }
+    pass Shell4
+    {		
+		VertexShader = compile vs_2_0 VertexShaderGrass(GRASSHEIGHT/MAXSHELLS, 4);
+		PixelShader  = compile ps_3_0 PixelShaderGrass(4);
+    }
+}
+
+
+///////////////////////////////////////////////////////////////////////////////
+// GRASS TRANSITION PIXEL SHADER AND TECHNIQUE
+//
+// Use the opacity map to determine where to draw grass.  Where there is no
+// grass use a normal map shader.  Mip mapping on the opacity map will yield
+// grey opacity values, use a blend when this occurs.  Only blend/transition
+// the first pass, the remaining layers should ignore/clip the non grass pixels.
+//
+
+VtoP VertexShaderGrassTransition(VS_INPUT IN, uniform float shellHeight, uniform int shellIndex) 
+{
+	VtoP OUT;
+	OUT = VertexShaderGrass(IN, shellHeight, shellIndex); 
+
+	// More complex specular calculations.  Only used in grass transitions.
+	float3x3 mToTangent;
+	mToTangent[0]	= IN.tangent;
+	mToTangent[2]	= IN.normal;
+	mToTangent[1]	= cross( mToTangent[2], mToTangent[0] ) * IN.tangent.w;
+	OUT.Light.xyz	= mul( mToTangent, cvLocalLightVec );
+	float3 Viewer	= cvLocalEyePos - IN.position;
+	OUT.View		= mul( mToTangent, Viewer );	//Compute the reflection vector
+
+	return OUT;
+}
+
+float4 PixelShaderTransitionFirstPass( VtoP IN, uniform int shellIndex): COLOR
+{
+	float4 result;
+	float opacityValue = tex2D( OPACITY_SAMPLER, IN.tex.xy ).x;
+	if( opacityValue &lt;= 0.5f )
+	{
+		result = PixelShaderWorldNormal(IN);
+	}
+	else
+	{
+		result = PixelShaderGrass(IN, shellIndex);
+	}
+
+	return result;
+}
+
+float4 PixelShaderTransitionMultiPass( VtoP IN, uniform int shellIndex): COLOR
+{
+	float4 result;
+	// The opacity value determines where to draw grass - good for transitions
+	float opacityValue = tex2D( OPACITY_SAMPLER, IN.tex.xy ).x;
+	if( opacityValue &lt;= 0.5f )
+	{
+		// The world pixel shader only renders on the first pass - so clip the rest
+		clip(-1);
+	}
+	else
+	{
+		result = PixelShaderGrass(IN, shellIndex);
+	}
+	
+	return result;
+}
+
+technique GrassTransition
+{
+    pass Shell0
+    {		
+		VertexShader = compile vs_2_0 VertexShaderGrassTransition(GRASSHEIGHT/MAXSHELLS, 0);
+		PixelShader  = compile ps_3_0 PixelShaderTransitionFirstPass(0);
+    }
+    pass Shell1
+    {		
+		VertexShader = compile vs_2_0 VertexShaderGrassTransition(GRASSHEIGHT/MAXSHELLS, 1);
+		PixelShader  = compile ps_3_0 PixelShaderTransitionMultiPass(1);
+    }
+    pass Shell2
+    {		
+		VertexShader = compile vs_2_0 VertexShaderGrassTransition(GRASSHEIGHT/MAXSHELLS, 2);
+		PixelShader  = compile ps_3_0 PixelShaderTransitionMultiPass(2);
+    }
+    pass Shell3
+    {		
+		VertexShader = compile vs_2_0 VertexShaderGrassTransition(GRASSHEIGHT/MAXSHELLS, 3);
+		PixelShader  = compile ps_3_0 PixelShaderTransitionMultiPass(3);
+    }
+    pass Shell4
+    {		
+		VertexShader = compile vs_2_0 VertexShaderGrassTransition(GRASSHEIGHT/MAXSHELLS, 4);
+		PixelShader  = compile ps_3_0 PixelShaderTransitionMultiPass(4);
+    }
+}
+
+
+#include "ZPrePass_fx.h"
+#include "shadowmap_fx.h"
+
+*/</file>
+  <file id="1" path="D:\eax-build1-s09-xenon\Oban\Speed\Xenon\Src\Render\Shaders\global.h" time="01c7f8c7-b0ef0cee">#ifndef GLOBAL_H
+#define GLOBAL_H
+
+#include "registermap.h"   
+
+// Defined out for the Xbox360 - only needed on the PC
+#define DECLARE_TEXTURE(texture)	
+#define ASSIGN_TEXTURE(texture)	
+#define DECLARE_MINFILTER(default_filter)			 MINFILTER = default_filter;
+#define DECLARE_MAGFILTER(default_filter)			 MAGFILTER = default_filter;
+#define DECLARE_MIPFILTER(default_filter)			 MIPFILTER = default_filter;
+
+/////////////////////////////////////////////////////////////////////////////////////////
+float4x4	cmWorldViewProj			: REG_cmWorldViewProj; //WORLDVIEWPROJECTION ;
+float4		cvScreenOffset			: REG_cvScreenOffset; //SCREENOFFSET;
+float4		cvVertexPowerBrightness : REG_cvVertexPowerBrightness;
+
+float4 world_position( float4 screen_pos )
+{
+ 	float4 p = mul(screen_pos, cmWorldViewProj);  
+	p.xy += cvScreenOffset.xy * p.w;
+    return p;
+}
+
+float4 screen_position( float4 screen_pos )
+{
+	screen_pos.xy += cvScreenOffset.xy;
+    return screen_pos;
+}
+
+float4 CalcVertexColour(float4 colour)
+{
+	float4 result = pow(colour, cvVertexPowerBrightness.x) * cvVertexPowerBrightness.y;
+	result.w = colour.w;
+	return result;
+}
+
+float3 ScaleHeadLightIntensity(float3 colour) 
+{
+	float3 result = colour * cvVertexPowerBrightness.z;
+	return result;
+}
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////
+// HDR Colour Space compression
+//
+// Convert to a log or psudeo-log colour space to save high dynamic range data
+/////////////////////////////////////////////////////////////////////////////////////////
+#define kCompressCoeff ( 1.0f )
+float3 CompressColourSpace(float3 colour)
+{
+	return colour / (kCompressCoeff+colour);
+}
+
+float3 DeCompressColourSpace(float3 colour)
+{
+	return colour / (kCompressCoeff-colour);
+}
+
+
+/////////////////////////////////////////////////////////////////////////////////////////
+// RGBE8 Encoding/Decoding
+// The RGBE8 format stores a mantissa per color channel and a shared exponent 
+// stored in alpha. Since the exponent is shared, it's computed based on the
+// highest intensity color component. The resulting color is RGB * 2^Alpha,
+// which scales the data across a logarithmic scale.
+/////////////////////////////////////////////////////////////////////////////////////////
+
+float4 EncodeRGBE8( in float3 rgb )	  
+{
+	float4 vEncoded;
+
+    // Determine the largest color component
+	float maxComponent = max( max(rgb.r, rgb.g), rgb.b );
+	
+	// Round to the nearest integer exponent
+	float fExp = ceil( log2(maxComponent) );
+
+    // Divide the components by the shared exponent
+	vEncoded.rgb = rgb / exp2(fExp);
+	
+	// Store the shared exponent in the alpha channel
+	vEncoded.a = (fExp + 128) / 255;
+
+	return vEncoded;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+float3 DecodeRGBE8( in float4 rgbe )
+{
+	float3 vDecoded;
+
+    // Retrieve the shared exponent
+	float fExp = rgbe.a * 255 - 128;
+	
+	// Multiply through the color components
+	vDecoded = rgbe.rgb * exp2(fExp);
+	
+	return vDecoded;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+#endif</file>
+  <file id="2" path="D:\eax-build1-s09-xenon\Oban\Speed\Xenon\Src\Render\Shaders\registermap.h" time="01c7f8c7-b0d997bb">
+// ------------------------------------------------------------------------------------------------------------------------------------------
+
+#define CONSTANT_RESERVED_DO_NOT_USE			(0)		/* 4 vectors [c0,c3] */
+
+// ------------------------------------------------------------------------------------------------------------------------------------------
+
+#define REG_RESERVED_DO_NOT_USE			register(c0)	/* 4 vectors [c0,c3] */
+
+#define REG_cmWorldMat					register(c4)	/* 4 vectors [c0,c3] */
+#define REG_cmWorldMatTranspose			register(c8)	/* 4 vectors [c4,c7] */
+#define REG_cmWorldView					register(c12)	/* 4 vectors [c8,c11] */
+#define REG_cmShadowMapWVP				register(c16)	/* 4 vectors [c12,c15] */
+#define REG_cmLightWVP					register(c20)	/* 4 vectors [c16,c19] */
+#define REG_cmWorldViewProj				register(c24)	/* 4 vectors [c20,c23] */
+#define REG_cmPrevWorldViewProj			register(c28)	/* 4 vectors [c24,c27] */
+#define REG_cvLocalEyePos				register(c32)	/* 1 vecotr	 [c32] */
+#define REG_cvLocalLightVec				register(c33)	/* 1 vecotr	 [c33] */
+#define REG_cfSkyDomeRotation			register(c34)	/* 1 vecotr	 [c34] */
+
+#define REG_cmLocalColourMatrix			register(c36)	/* 4 vectors [c36,c39] */
+#define REG_cmLocalDirectionMatrix		register(c40)	/* 4 vectors [c40,c43] */
+#define REG_cmLocalPositionMatrix		register(c44)	/* 4 vectors [c44,c47] */
+#define REG_cavHarmonicCoeff			register(c48)	/* 10 floats, 3 vectors, 1 pad vector [48,51] */
+
+#define REG_camBlendMatrices			register(c52)	/* 16 vectors [c52,c67] */
+#define REG_cavWorldHeadlightDirection	register(c68)	/* 2 vectors [c68,c69] */
+#define REG_cavWorldHeadlightPosition	register(c70)	/* 2 vectors [c70,c71] */
+#define REG_cavWorldHeadlightUpDirection register(c72)	/* 2 vectors [c72,c73] */
+
+#define REG_cmShadowMapVP				register(c68) // note clash with head light
+#define REG_cmShadowMapBiasMatrix		register(c72)	/* 4 vectors [c72, c75] */
+
+
+
+#define REG_cvWorldSunColour			register(c79)
+#define REG_cvWorldAmbientColour		register(c80)
+
+// available: [c82,c115] (but would alias cavPcaWeightsR and cavPcaWeightsG)
+// PCA/UCap parameters (ucap.fx, water.fx)
+#define REG_cafPcaMean					register(c81)	/* 1 vector */
+#define REG_cavPcaWeightsR				register(c82)	/* 22 vectors [c82,c103] */
+#define REG_cavPcaWeightsG				register(c104)	/* 22 vectors [c104,c125] */
+#define REG_cavPcaWeightsB				register(c126)	/* 22 vectors [c126,c147] */
+#define REG_cavPcaWeightsX				register(c148)	/* 8 vectors [c148,c155] */
+#define REG_cavPcaWeightsY				register(c156)	/* 8 vectors [c156,c163] */
+#define REG_cavPcaWeightsZ				register(c164)	/* 8 vectors [c164,c171] */
+#define REG_cavPcaWeightsNX				register(c172)	/* 8 vectors [c172,c179] */
+#define REG_cavPcaWeightsNY				register(c180)	/* 8 vectors [c180,c187] */
+#define REG_cavPcaWeightsNZ				register(c188)	/* 8 vectors [c188,c195] */
+#define REG_cavFeatureHeights			register(c196)	/* 1 vector */
+
+
+// The following parameters alias cavPcaWeightsG:
+#define REG_cfMipMapBias				register(c116)
+#define REG_cfBrightness				register(c117)
+#define REG_cfSurfaceReflection			register(c118)
+#define REG_cfRainIntensity				register(c119)
+#define REG_cfSpecularPower				register(c120)
+#define REG_cfMetallicScale				register(c121)
+#define REG_cfEnvmapPullAmount			register(c122)
+#define REG_cfEnvmapPower				register(c123)
+#define REG_PAD2						register(c125)
+
+// The following parameters alias cavPcaWeightsB:
+#define REG_cfCombinedBrightness		register(c126)
+#define REG_cvVisualEffectFadeColour	register(c127)	/* also aliases cfSkyAlphaTag */
+#define REG_cfSkyAlphaTag				register(c127)	/* also aliases cvVisualEffectFadeColour */
+#define REG_cfShadowVolumeOffset		register(c128)
+#define REG_cfRVMWorldBrightness		register(c129)
+#define REG_cfDesaturation				register(c130)
+#define REG_cfBloomScale				register(c131)
+#define REG_cfSplitScreenUVScale		register(c132)
+#define REG_cfColourCubeFilterBlend		register(c133)
+#define REG_cfTimeTicker				register(c134)
+#define REG_cfMiddleGray				register(c135)
+#define REG_cfBrightPassThreshold		register(c136)
+
+#define REG_cvScreenOffset				register(c137)
+#define REG_cvFog_Br_Plus_Bm			register(c138)
+#define REG_cvFog_One_Over_BrBm			register(c139)
+#define REG_cvFog_Const_1				register(c140)
+#define REG_cvFog_Const_2				register(c141)
+#define REG_cvFog_Const_3				register(c142)
+#define REG_cvAmbientColour				register(c143)
+#define REG_cvShadowParams0				register(c144)
+#define REG_cvShadowParams1				register(c145)
+
+
+// The following parameters alias cavPcaWeightsX:
+#define REG_cvDiffuseColour				register(c148)
+#define REG_cvSpecularColour			register(c149)
+// available: [c150,c155] (but would alias cavPcaWeightsX)
+
+// The following parameters alias cavPcaWeightsY:
+#define REG_cvShadowColour				register(c156)
+#define REG_cvTextureOffset				register(c161)
+#define REG_cvLocalCenter				register(c162)
+#define REG_cvTreeParams				register(c163)
+
+// The following parameters alias cavPcaWeightsZ:
+#define REG_cvBaseAlphaRef				register(c164)
+#define REG_cvCloudIntensity			register(c165)
+#define REG_cvLocalLightPos				register(c166)
+#define REG_cvPixelizationScale			register(c167)
+#define REG_cvGrassColour				register(c169)
+
+// The following parameters alias cavPcaWeightsNX:
+#define REG_cvDepthOfFieldParams		register(c172)	/* aliases cavFeatureHeights */
+#define REG_cvBlurParams				register(c173)
+// The following parameters alias cavPcaWeightsNX and cavPcaWeightsNY:
+#define REG_cavSampleOffsetWeights		register(c174)	/* 16 vectors [c174,c189] */
+
+#define REG_PAD0						register(c190)	/* free space!! */
+
+#define REG_cvFogValue					register(c206)
+#define REG_cvFogColour					register(c207)
+#define REG_cfSkyFogFalloff				register(c208)
+#define REG_cfLightMapVertColBlend		register(c209)
+
+#define REG_cvLightColour				register(c210)
+#define REG_cvLightPosition				register(c211)
+
+#define REG_cvLightDirection			register(c212)
+#define REG_cfShadowMapEnabled			register(c213)
+#define REG_cfVSMEnabled				register(c214)
+#define REG_cfReceiveShadow				register(c215)
+
+#define REG_cvVertexPowerBrightness		register(c216)
+
+#define REG_cfFogEnable					register(c240)
+
+
+
+// Light Material Registers - alias REG_cavLightDirections
+
+#define REG_cvDiffuseMin				register(c228)
+#define REG_cvDiffuseRange				register(c229)
+#define REG_cvEnvmapMin					register(c230)
+#define REG_cvEnvmapRange				register(c231)
+#define REG_cvSpecularMin				register(c232)
+#define REG_cvSpecularRange				register(c233)
+#define REG_cvSpecular1Min				register(c234)
+#define REG_cvSpecular1Range			register(c235)
+#define REG_cvPowers					register(c236)
+#define REG_cvClampAndScales			register(c237)
+#define REG_cvFlakes					register(c238)
+#define REG_cvVinylScales				register(c239)
+
+#define	REG_cvGradientParams            register(c240)
+#define	REG_cvGradientColour            register(c241)
+#define	REG_cvGradientColourE           register(c242)
+#define	REG_ScreenRez                  	register(c243)
+#define REG_cfScaleUVs					register(c244)
+
+// for the constants heavy shader instancing
+// 4 vectors, c4 to c7
+#define REG_cmInstanceVP					register(c4)
+#define REG_cvInstanceData					register(c8)
+#define REG_cvInstanceWorldSunPosition		register(c9)
+#define REG_cvInstanceWorldSunColour		register(c10)
+#define REG_cvInstanceWorldAmbientColour	register(c11)
+#define REG_cvInstancedFogColour			register(c12)
+#define REG_cvInstancedFogValue				register(c13)
+#define REG_cvInstanceArray					register(c14)
+
+
+// Aliased With Light Materials ...
+
+#define REG_cfDrawDepthOfField			register(c230)
+
+
+#define REG_ciVSMEnabled				register(c)
+#define REG_ciShadowMapPCFLevel			register(c)
+#define REG_ciShadowMapAlphaEnabled		register(c)
+#define REG_ciDoCarShadowMap			register(c)
+#define REG_cbIsParallexMapped			register(c)
+#define REG_cbDecompressPCA				register(c)
+
+#define REG_DIFFUSE_SAMPLER				register(c)
+#define REG_HEIGHTMAP_SAMPLER			register(c)
+#define REG_MISCMAP1_SAMPLER			register(c)
+#define REG_MISCMAP2_SAMPLER			register(c)
+#define REG_MISCMAP3_SAMPLER			register(c)
+#define REG_MISCMAP4_SAMPLER			register(c)
+#define REG_OPACITY_SAMPLER				register(c)
+#define REG_VOLUMEMAP_SAMPLER			register(c)
+#define REG_ENVIROMAP_SAMPLER			register(c)
+#define REG_NORMALMAP_SAMPLER			register(c)
+#define REG_SHADOWMAP_SAMPLER			register(c)
+#define REG_SHADOWVOLUME_COLOUR			register(c)
+#define REG_SPECULARMAP_SAMPLER			register(c)
+#define REG_PCA_COMPONENTS0_SAMPLER		register(c)
+#define REG_PCA_COMPONENTS1_SAMPLER		register(c)
+#define REG_PCA_COMPONENTS2_SAMPLER		register(c)
+#define REG_PCA_COMPONENTS3_SAMPLER		register(c)
+#define REG_HEADLIGHT_SAMPLER			register(c)
+#define REG_HEADLIGHT_CLIP_SAMPLER		register(c)
+#define REG_MIPMAP_GEN_SAMPLER			register(c)
+
+
+
+
+
+</file>
+  <file id="3" path="D:\eax-build1-s09-xenon\Oban\Speed\Xenon\Src\Render\Shaders\lightscattering.h" time="01c7f8c7-b0f633ff">#define fog_g1 0
+#define fog_g2 1
+#define fog_g3 2
+#define fog_multiplier 3
+static const float kMaxDist = 7000.0f;
+
+shared float4 cvFog_Br_Plus_Bm			: REG_cvFog_Br_Plus_Bm; //FOG_BR_PLUS_BM; // br+bm
+shared float3 cvFog_One_Over_BrBm		: REG_cvFog_One_Over_BrBm; //FOG_ONE_OVER_BRBM; // 1/(br+bm)
+shared float3 cvFog_Const_1				: REG_cvFog_Const_1; //FOG_CONST1; // 3/(16 * PI) * br, w=distance scale
+shared float3 cvFog_Const_2				: REG_cvFog_Const_2; //FOG_CONST2; // 1/(4 * PI) * bm
+shared float4 cvFog_Const_3				: REG_cvFog_Const_3; //FOG_CONST3; // (1-g)^2, 1+g*g, -2 * g, multiplier
+#define cfFog_DistanceScale	cvFog_Br_Plus_Bm.w		
+
+void CalcFogNoDistScale(in float dist, in float cos_theta, out float3 fogAdd, out float3 fogMod)
+{
+	//float3 t = cvFog_Br_Plus_Bm.xyz * -min(dist, kMaxDist);
+	float3 t = cvFog_Br_Plus_Bm.xyz * -dist;//-min(dist, 7000.0);
+
+	float3 extinct = exp(t.xyz);
+
+	//OUT.FogMod.xyz = saturate(extinct.xyz * SunColor.xyz * SunColor.w);
+	fogMod.xyz = saturate(extinct.xyz);
+
+	float cos_sq = cos_theta * cos_theta;
+
+	float phase1 = 1.0 + cos_sq;
+	float phase2 = cvFog_Const_3[fog_g2] + cvFog_Const_3[fog_g3] * cos_theta;
+	phase2 = rsqrt(phase2);
+	phase2 = phase2 * phase2 * phase2 * cvFog_Const_3[fog_g1];
+
+	float3 br_theta, bm_theta;
+
+	br_theta = cvFog_Const_1.xyz * phase1;
+	bm_theta = cvFog_Const_2 * phase2;
+	float3 lin = (br_theta + bm_theta) * cvFog_One_Over_BrBm * (1.0 - extinct);
+
+	//OUT.FogAdd = saturate(SunColor.xyz * lin * SunColor.w * cvFog_Const_3[fog_multiplier]);
+	fogAdd = saturate(lin * cvFog_Const_3[fog_multiplier]);
+}
+
+void CalcFog(in float dist, in float cos_theta, out float3 fogAdd, out float3 fogMod)
+{
+	CalcFogNoDistScale(min(dist * cfFog_DistanceScale, kMaxDist), cos_theta, fogAdd, fogMod);
+}
+</file>
+ </files>
+ <tool name="FXLite">
+  <defines>
+   <define name="PLAT_XENON" value="" />
+  </defines>
+  <arguments>
+   <argument name="/Zi" value="false" />
+   <argument name="/Vd" value="false" />
+   <argument name="/Xu0_deprecated" value="false" />
+   <argument name="/Odu_deprecated" value="false" />
+   <argument name="/XOd_" value="false" />
+   <argument name="/XOu" value="false" />
+   <argument name="/Xmaxtempreg" value="0" />
+   <argument name="PsSampBase" value="0" />
+   <argument name="PsSampCount" value="0" />
+   <argument name="VsSampBase" value="0" />
+   <argument name="VsSampCount" value="0" />
+   <argument name="VsInstCount" value="0" />
+   <argument name="PsInstCount" value="0" />
+   <argument name="/Od" value="false" />
+   <argument name="/Zpr" value="false" />
+   <argument name="/Zpc" value="false" />
+   <argument name="/Gpp" value="false" />
+   <argument name="/Op" value="false" />
+   <argument name="/Gfa" value="false" />
+   <argument name="/Gfp" value="false" />
+   <argument name="/XZc:zeroInit" value="false" />
+   <argument name="/XVe" value="false" />
+   <argument name="/Xbe:3-" value="false" />
+   <argument name="/Xbe:1-" value="false" />
+   <argument name="/XQInomaskedexports" value="false" />
+   <argument name="/XOautoz" value="false" />
+   <argument name="/XfxAv" value="false" />
+   <argument name="/XfxAs" value="false" />
+   <argument name="/XfxPv" value="false" />
+  </arguments>
+ </tool>
+ <shaders>
+  <shader entrypoint="pixel_shader" target="ps_3_0" FxlTechniqueName="grass_stub" FxlTechnique="0" FxlPassName="p0" FxlPass="0" ZPass="0" pdbHint="4e4a0000-93d2255e-12cb2802">
+   <constanttable>
+   </constanttable>
+   <sourcemap>
+    <statement pc="1" file="0" line="34" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="pixel_shader" retID="59">
+    </function>
+    <function id="1" name="vertex_shader" retID="58">
+     <parameter id="57" />
+    </function>
+    <function id="2" name="CalcFog" retID="50">
+     <parameter id="46" />
+     <parameter id="47" />
+     <parameter id="48" />
+     <parameter id="49" />
+    </function>
+    <function id="3" name="CalcFogNoDistScale" retID="37">
+     <parameter id="33" />
+     <parameter id="34" />
+     <parameter id="35" />
+     <parameter id="36" />
+    </function>
+    <function id="4" name="DecodeRGBE8" retID="24">
+     <parameter id="23" />
+    </function>
+    <function id="5" name="EncodeRGBE8" retID="19">
+     <parameter id="18" />
+    </function>
+    <function id="6" name="DeCompressColourSpace" retID="17">
+     <parameter id="16" />
+    </function>
+    <function id="7" name="CompressColourSpace" retID="15">
+     <parameter id="14" />
+    </function>
+    <function id="8" name="ScaleHeadLightIntensity" retID="12">
+     <parameter id="11" />
+    </function>
+    <function id="9" name="CalcVertexColour" retID="9">
+     <parameter id="8" />
+    </function>
+    <function id="10" name="screen_position" retID="7">
+     <parameter id="6" />
+    </function>
+    <function id="11" name="world_position" retID="4">
+     <parameter id="3" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+   </VfetchInfo>
+   <InterpolatorInfo>
+   </InterpolatorInfo>
+   <LiteralFloats>
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+  <shader entrypoint="vertex_shader" target="vs_3_0" FxlTechniqueName="grass_stub" FxlTechnique="0" FxlPassName="p0" FxlPass="0" ZPass="0" pdbHint="4e4a0001-93d2255e-12cb2802">
+   <constanttable>
+    <constant register="c24" count="4">
+     <type name="cmWorldViewProj" class="matrix_columns" type="float" rows="4" columns="4" />
+    </constant>
+    <constant register="c137">
+     <type name="cvScreenOffset" class="vector" type="float" columns="4" />
+    </constant>
+   </constanttable>
+   <sourcemap>
+    <statement pc="3" file="0" line="27" scope="-1" lastinstruction="0" />
+    <statement pc="0.1" file="0" line="27" scope="-1" lastinstruction="0" />
+    <statement pc="4" file="1" line="20" scope="-1" lastinstruction="0" />
+    <statement pc="5" file="1" line="20" scope="-1" lastinstruction="0" />
+    <statement pc="6" file="1" line="21" scope="-1" lastinstruction="0" />
+    <statement pc="7" file="1" line="21" scope="-1" lastinstruction="0" />
+    <statement pc="8" file="1" line="21" scope="-1" lastinstruction="0" />
+    <statement pc="9" file="0" line="29" scope="-1" lastinstruction="0" />
+    <statement pc="1.1" file="0" line="29" scope="-1" lastinstruction="0" />
+    <statement pc="2.0" file="0" line="29" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="pixel_shader" retID="59">
+    </function>
+    <function id="1" name="vertex_shader" retID="58">
+     <parameter id="57" />
+    </function>
+    <function id="2" name="CalcFog" retID="50">
+     <parameter id="46" />
+     <parameter id="47" />
+     <parameter id="48" />
+     <parameter id="49" />
+    </function>
+    <function id="3" name="CalcFogNoDistScale" retID="37">
+     <parameter id="33" />
+     <parameter id="34" />
+     <parameter id="35" />
+     <parameter id="36" />
+    </function>
+    <function id="4" name="DecodeRGBE8" retID="24">
+     <parameter id="23" />
+    </function>
+    <function id="5" name="EncodeRGBE8" retID="19">
+     <parameter id="18" />
+    </function>
+    <function id="6" name="DeCompressColourSpace" retID="17">
+     <parameter id="16" />
+    </function>
+    <function id="7" name="CompressColourSpace" retID="15">
+     <parameter id="14" />
+    </function>
+    <function id="8" name="ScaleHeadLightIntensity" retID="12">
+     <parameter id="11" />
+    </function>
+    <function id="9" name="CalcVertexColour" retID="9">
+     <parameter id="8" />
+    </function>
+    <function id="10" name="screen_position" retID="7">
+     <parameter id="6" />
+    </function>
+    <function id="11" name="world_position" retID="4">
+     <parameter id="3" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+    <vfetch Address="3" Register="1" DestSwizzle="xyzw" Semantic="0x00" End="false" />
+   </VfetchInfo>
+   <InterpolatorInfo>
+   </InterpolatorInfo>
+   <LiteralFloats>
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+ </shaders>
+</shader-pdb>

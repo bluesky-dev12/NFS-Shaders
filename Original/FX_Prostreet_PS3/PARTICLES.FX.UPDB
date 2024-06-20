@@ -1,0 +1,2365 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shader-pdb pdbHint="4e4a000a-f4c01195-cee4f33d" version="6132">
+ <files>
+  <file id="0" path="D:\eax-build1-s09-xenon\Oban\Speed\Xenon\Src\Render\Shaders\particles.fx" time="01c7f8c7-b0f8965a">//
+// Standard Effect
+//
+#include "global.h"
+
+shared float4x4 cmWorldView			: REG_cmWorldView; //WORLDVIEW
+shared float4x4 cmWorldMat			: REG_cmWorldMat;  //local to world matrix
+shared float3	cvLocalEyePos		: REG_cvLocalEyePos; //LOCALEYEPOS;
+shared float4	cvTextureOffset		: REG_cvTextureOffset; //TEXTUREANIMOFFSET;
+
+
+shared float cfBrightness			: REG_cfBrightness; //STANDARD_BRIGHTNESS
+shared float4 cvLocalCenter			: REG_cvLocalCenter; //LOCALCENTER;
+shared float4 cvBaseAlphaRef		: REG_cvBaseAlphaRef; //BASEALPHAREF; 
+shared float4 cvBlurParams			: REG_cvBlurParams; //IS_MOTIONBLUR_VIGNETTED;
+shared float4 cfSplitScreenUVScale	: REG_cfSplitScreenUVScale;
+shared float  cfMipMapBias			: REG_cfMipMapBias;
+
+static const float FuzzWidth = 0.15f;//0.05f;//changed from 0.05 to 0.15 by Lee Rosenbaum Aug 23, 2006;
+
+static const float MaxParticleSize = 0.75f;
+static const float MaterialShininess = 10;
+
+// Pro-Street these should not change much at all (its the sun)
+float4	cvLightColour;			
+float4	cvLightPosition;
+
+// these should be artist controlled
+//float3 ambient_colour = float3(0.72,0.8,0.9);
+#define ambient_colour ( float3(0.72,0.8,0.9) )
+
+float magnitude_debug = 1.0;
+
+sampler DIFFUSE_SAMPLER = sampler_state
+{
+	AddressU = WRAP;
+	AddressV = WRAP;
+	MIPFILTER = LINEAR;
+	MINFILTER = LINEAR;
+	MAGFILTER = LINEAR;
+};
+
+sampler MISCMAP1_SAMPLER = sampler_state	// backbuffer for screen distortion
+{
+	AddressU = CLAMP;
+	AddressV = CLAMP;
+	MIPFILTER = LINEAR;
+	MINFILTER = LINEAR;
+	MAGFILTER = LINEAR;
+};
+
+sampler OPACITY_SAMPLER = sampler_state	// rain alpha texture
+{
+	AddressU = CLAMP;
+	AddressV = CLAMP;
+	MIPFILTER = LINEAR;
+	MINFILTER = LINEAR;
+	MAGFILTER = LINEAR;
+};
+
+sampler NORMALMAP_SAMPLER = sampler_state
+{
+	AddressU	= WRAP;
+	AddressV	= WRAP;
+	MIPFILTER	= LINEAR;
+	MINFILTER	= LINEAR;
+	MAGFILTER	= LINEAR;
+};
+
+sampler	HEIGHTMAP_SAMPLER;
+
+struct VS_INPUT
+{
+	float4 position : POSITION;
+	float4 color    : COLOR;
+	float4 tex		: TEXCOORD;
+	float4 size		: TEXCOORD1;
+	int4   light_index	: BLENDINDICES;
+};
+
+struct VtoP_NormalMapped
+{
+	float4 position			: POSITION;
+	float4 color			: COLOR0;
+	float3 lightColor		: COLOR1;
+	float4 tex				: TEXCOORD0;
+	float4 tex1				: TEXCOORD1;
+	// vector from the vertex to the light, in tangent space
+	float3 to_light_tan		: TEXCOORD2;
+	// Half-angle vector, needed for per-pixel specular, in tangent space
+	//float3 half_angle_tan	: TEXCOORD3;
+	float4 position2			: TEXCOORD3;	
+};
+
+struct VtoP
+{
+	float4 position  : POSITION;
+	float4 color     : COLOR0;
+	float4 tex       : TEXCOORD0;
+	float4 tex1      : TEXCOORD1;
+};
+
+struct PS_OUTPUT
+{
+	float4 color : COLOR0;
+};
+
+struct VtoP_Depth
+{
+	float4 position : POSITION;
+	float dist		: COLOR0;
+};
+
+//-----------------------------------------------------------------------------
+// PARTICLES
+//
+
+float3x3 BuildRotate(float angle, float3 rotAxis)
+{
+	float3x3 m;
+    // float fSin = sin(angle);
+    // float fCos = cos(angle);
+    float2 sc;
+    sincos(angle,sc.x,sc.y);
+	float3 axis = normalize(rotAxis);
+
+    float3 cosAxis = (1.0f - sc.y) * axis;
+    float3 sinAxis = sc.x * axis;
+    m[0] = cosAxis.x * axis; 
+    m[1] = cosAxis.y * axis; 
+    m[2] = cosAxis.z * axis; 
+    m[0][0] += sc.y;
+    m[0][1] += sinAxis.z;
+    m[0][2] -= sinAxis.y;
+    m[1][0] -= sinAxis.z;
+    m[1][1] += sc.y;
+    m[1][2] += sinAxis.x;
+    m[2][0] += sinAxis.y;
+    m[2][1] -= sinAxis.x;
+    m[2][2] += sc.y;
+    
+    return m;
+}
+
+VtoP_NormalMapped vertex_shader_particles(const VS_INPUT IN)
+{
+	VtoP_NormalMapped OUT;
+	// Offset the vertex by the particle size		
+	float3 right	= cmWorldView._m00_m10_m20;
+	float3 up		= cmWorldView._m01_m11_m21;
+	float3 facing	= cmWorldView._m02_m12_m22;
+
+	// Rotate the up and right around the facing
+	float angle = IN.size.z;
+	if( angle &gt; 0 )
+	{
+		float3x3 rotation = BuildRotate(angle, facing);
+		right = mul(right, rotation);
+		up	  = mul(up, rotation);
+	}
+
+	// Add offset from particle midpoint to the outside vertices
+	float4 pv = IN.position;
+	float3 offset = right * IN.size.x + up * IN.size.y;
+	pv.xyz += offset;
+
+	// Cap the screen size of any particle
+	float4 worldCornerPos = pv;
+	pv = world_position(pv);
+
+	float3 pvn = pv.xyz/pv.w;
+	float4 pc = world_position(IN.position);
+	float3 pcn = pc.xyz/pc.w;
+	float size = distance(pvn.xy,pcn.xy);
+	float new_size = min(size, MaxParticleSize);
+	float scale = new_size/size;
+	pv = lerp(pc,pv,scale);
+
+	// Each particle is affected by one light in the light array
+	// Read which one it is:
+	int lightIndex = IN.light_index.x;
+	float3 lightPos = cvLightPosition.xyz;
+		
+	float3 worldPos = mul(IN.position, cmWorldMat);
+ 	float3 toLightSource = normalize(lightPos - worldPos);
+	
+	// Create the matrix which transforms from world space to tangent space
+	float3 tangent = right;
+	float3 binormal = up;
+	float3 normal = -facing;
+	float3x3 matTSpace = transpose(float3x3( tangent, binormal, normal  ));
+
+	OUT.to_light_tan = mul(toLightSource, matTSpace);
+	
+	float3 toEyeWorld = normalize(cvLocalEyePos - worldPos);
+	float3 toEyeTan = mul(toEyeWorld, matTSpace);
+	 
+	// Calculate the half-angle vector for per-pixel specular (maybe this is overkill for particles)
+	//OUT.half_angle_tan = (toEyeTan + OUT.to_light_tan) * 0.5;
+			
+	float3 lightColour = cvLightColour.rgb;
+	OUT.lightColor = 1;//lightColour;
+					
+	OUT.position = OUT.position2 = pv;
+	OUT.color = saturate(IN.color * 2);
+	//OUT.color.xyz *= cvAmbientColour.xyz;
+
+	OUT.tex = IN.tex + cvTextureOffset;
+	
+	// Convert from screen space (-1 to 1) to texture coordinate space (0.0 to 1.0)
+	float distance = pv.z / pv.w;
+	OUT.tex1.x = (0.5 * pv.x / pv.w) + 0.5;
+	OUT.tex1.y = (-0.5 * pv.y / pv.w) + 0.5;
+	OUT.tex1.y *= cfSplitScreenUVScale[1];	// Split screen adjustment
+	OUT.tex1.y += cfSplitScreenUVScale[0];	// Split screen adjustment
+	
+	// Distance to the pixel in the depth buffer
+	OUT.tex1.z = distance;
+
+	// We cannot use FuzzWidth directly because we are performing these operations in the depth buffer.
+	// FuzzWidth is the amount of play that the sprites have with opaque objects. If a sprite is within FuzzWidth of an Opaque object
+	// the sprite will get blurred, fading it in nicely with the opaque object and smoothing the harsh edges out
+	
+	// Since Ztesting is off, it also controls whether or not we see the sprite if an opaque object is behind it
+	
+	// We need to scale FuzzWidth down if the sprite is near the back of the depth buffer. For instance, FuzzWidth could correspond to 1 cm
+	// at the start of the depth buffer, but it could be 100 meters at the end of it
+	
+	// Calculate the distance from the particle to the camera in world coordinates
+	OUT.tex1.w = length(cvLocalEyePos - IN.position) ;
+	
+
+	return OUT;
+}
+
+PS_OUTPUT pixel_shader_particles(const VtoP_NormalMapped IN)
+{
+	PS_OUTPUT OUT;
+	float  shadow = 1;//DoShadow( IN.shadowTex, 1 ) * 0.5 + 0.5;
+	 
+	float4 baseColour = tex2D(DIFFUSE_SAMPLER, IN.tex) * IN.color;
+	
+	float depth = tex2D(HEIGHTMAP_SAMPLER, IN.tex1.xy).x;
+	
+	
+	float zFar = 10000;
+	float zNear = 0.5;
+	float Q = zFar / (zFar - zNear);
+	float zDist = (-Q * zNear / (depth - Q));	
+		
+	float depthBufferDistToParticle = IN.position2.z / IN.position2.w;
+	float distanceToParticle = (-Q * zNear / (depthBufferDistToParticle - Q));
+
+	float distanceBetweenParticleAndGround = abs(zDist - distanceToParticle);
+	float fuzzz = saturate(distanceBetweenParticleAndGround  * 1);
+	
+	//fuzzz = 1;
+
+	// calculate the normal map
+	float3 normal = tex2D(NORMALMAP_SAMPLER, IN.tex) * 2 - 1;
+	
+	normal = normal * magnitude_debug ;
+
+	// Apply diffuse lighting 
+	float3 toLight = normalize(IN.to_light_tan);
+	float nDotL = saturate(dot(normal, toLight));
+		 
+	float3 diffuseColour = nDotL * IN.lightColor;
+
+	// specular calculations
+	//float3 half_angle = normalize(IN.half_angle_tan);
+	//float nDotH = saturate(dot(normal, half_angle));	
+
+	//float3 MaterialSpecular = float3(0.4, 0.4, 0.4);
+	
+	//float3 specular = MaterialSpecular * pow(nDotH, MaterialShininess);
+	
+	OUT.color.rgb = fuzzz * shadow * baseColour * (ambient_colour + diffuseColour);// + specular);
+	OUT.color.a = baseColour.a * shadow * fuzzz;
+	
+	OUT.color.rgb = CompressColourSpace(OUT.color.rgb);
+	
+	return OUT;	
+}
+
+technique particles &lt;int shader = 1;&gt;
+{
+    pass p0
+    {
+        VertexShader = compile vs_1_1 vertex_shader_particles();
+        PixelShader  = compile ps_2_0 pixel_shader_particles();
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////
+//
+// FLARES
+//
+///////////////////////////////////////////////////////////////////////////////////////
+
+
+struct VS_INPUT_FLARES
+{
+	float4 position : POSITION;
+	float4 color    : COLOR;
+	float4 tex		: TEXCOORD;
+	float4 size		: TEXCOORD1;
+};
+
+struct VtoP_FLARES
+{
+	float4 position  : POSITION;
+	float4 color     : COLOR0;
+	float4 tex       : TEXCOORD0;
+	float4 tex1      : TEXCOORD1;
+};
+
+VtoP_FLARES vertex_shader_flares(const VS_INPUT_FLARES IN)
+{
+	VtoP_FLARES OUT;
+	// Offset the vertex by the particle size		
+	float3 right	= cmWorldView._m00_m10_m20;
+	float3 up		= cmWorldView._m01_m11_m21;
+	float3 facing	= cmWorldView._m02_m12_m22;
+	float  isTrailFlare = IN.size.w;
+
+	float  angle    = IN.size.z;
+	// Rotate the up and right around the facing
+	if( angle &gt; 0 )
+	{
+		float3x3 rotation = BuildRotate(angle, facing);
+		right = mul(right, rotation);
+		up	  = mul(up, rotation);
+	}
+	
+	float4 pv = IN.position;
+	pv.xyz += right * IN.size.x + up * IN.size.y;
+
+	// Cap the screen size of any particle
+	pv = world_position(pv);
+
+	OUT.position = pv;
+	OUT.color = IN.color;
+	OUT.tex = IN.tex;
+	OUT.tex.w = cfMipMapBias;		// bias the mipmapping
+//	OUT.tex1 = IN.size;
+
+
+	// Convert from screen space (-1 to 1) to texture coordinate space (0.0 to 1.0)
+	float distance = pv.z / pv.w;
+	OUT.tex1.x = (0.5 * pv.x / pv.w) + 0.5;
+	OUT.tex1.y = (-0.5 * pv.y / pv.w) + 0.5;
+	OUT.tex1.z = distance;		// Distance to the pixel in the depth buffer
+	OUT.tex1.y *= cfSplitScreenUVScale[1];	// Split screen adjustment
+	OUT.tex1.y += cfSplitScreenUVScale[0];	// Split screen adjustment
+
+	// We cannot use FuzzWidth directly because we are performing these operations in the depth buffer.
+	// FuzzWidth is the amount of play that the sprites have with opaque objects. If a sprite is within FuzzWidth of an Opaque object
+	// the sprite will get blurred, fading it in nicely with the opaque object and smoothing the harsh edges out
+	
+	// Since Ztesting is off, it also controls whether or not we see the sprite if an opaque object is behind it
+	
+	// We need to scale FuzzWidth down if the sprite is near the back of the depth buffer. For instance, FuzzWidth could correspond to 1 cm
+	// at the start of the depth buffer, but it could be 100 meters at the end of it
+	OUT.tex1.w = saturate(FuzzWidth + distance * (-FuzzWidth));  
+
+		
+	return OUT;
+}
+
+
+
+float4 pixel_shader_flares(const VtoP_FLARES IN) : COLOR
+{
+	float4 diffuse = tex2Dbias(DIFFUSE_SAMPLER, IN.tex);
+
+	float scaled_fuzz_width = IN.tex1.w;
+	float depth = tex2D(HEIGHTMAP_SAMPLER,IN.tex1.xy).x;
+	float fuzzz = saturate((scaled_fuzz_width*0.4 - (IN.tex1.z - depth)) / (scaled_fuzz_width));
+	
+	
+	float4 result;	
+	result = diffuse;
+	result *= IN.color;//*cvBaseAlphaRef.y;
+	// Apply a tone mapping to fake a HDR
+	result.xyz = result.xyz / (1.5-result.xyz);
+	//result.xyz = pow(result.xyz, 1.5)*1.5;
+	//result.xyz	= result.x &gt; 0.95 ? 1.0f : 0.0f;
+	// cvBaseAlphaRef.x is set to 0 in players views so the fuzzz used and 1 to disable the fuzz
+	result.w *= saturate(cvBaseAlphaRef.x + fuzzz);
+	
+	//result.xyz = fuzzz;//(scaled_fuzz_width - (IN.tex1.z - depth)) / FuzzWidth;
+	//result.w = 1;
+	result.xyz = CompressColourSpace(result.xyz);
+	
+	return result;
+}
+
+technique flares
+{
+    pass p0
+    {
+        VertexShader = compile vs_1_1 vertex_shader_flares();
+        PixelShader  = compile ps_2_0 pixel_shader_flares();
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////
+//
+// STREAK FLARES
+//
+///////////////////////////////////////////////////////////////////////////////////////
+
+struct VtoP_SFLARES
+{
+	float4 position  : POSITION;
+	float4 color     : COLOR0;
+	float4 tex       : TEXCOORD0;
+};
+
+
+VtoP_SFLARES vertex_shader_streak_flares(const VS_INPUT_FLARES IN)
+{
+	VtoP_SFLARES OUT;
+	// Offset the vertex by the particle size		
+	float3 right	= cmWorldView._m00_m10_m20;
+	float3 up		= cmWorldView._m01_m11_m21;
+	float3 facing	= cmWorldView._m02_m12_m22;
+	float  doStreakFlare = IN.size.w;
+	float4 pv		= IN.position;
+	float4 vertexColour = IN.color;
+	float4 tex		= IN.tex;
+
+	if( doStreakFlare &gt; 0 )
+	{
+		float cameraSpeed = cvBaseAlphaRef.y;
+		float nosAmount   = cvBaseAlphaRef.w;
+		
+		// Add some speed for NOS
+		//
+		cameraSpeed += nosAmount*20;
+		
+		//
+		// Flare is stretch to create a flare trail for Sense of Speed
+		//
+ 		float4 currFramePos	= mul(IN.position, cmWorldViewProj);
+
+		// Redice length if camera veleocity is off centre in the x direction
+ 		cameraSpeed = lerp(cameraSpeed, 0, saturate(abs(cvBaseAlphaRef.x)/0.05));
+
+ 		float4 prevFramePos = currFramePos;
+ 		prevFramePos.zw += 3 + saturate(cameraSpeed / 140) * 45;		// Stretch flare back
+ 		currFramePos += normalize(currFramePos - prevFramePos) * 10;	// Stretch flare forward
+
+		// Build the poly 		
+ 		float3 prevFrameDir = prevFramePos.xyz/prevFramePos.w - currFramePos.xyz/currFramePos.w;
+ 		float offsetWidth = min(abs(IN.size.x), abs(IN.size.y));
+ 		offsetWidth *= 0.2;
+ 		float4 currFrameOffset  = mul(IN.position + float4(offsetWidth, offsetWidth, offsetWidth, 0), cmWorldViewProj);
+ 		float  currFrameSize    = distance(currFrameOffset.xy, currFramePos.xy);
+ 		float3 prevFrameDirTanget = normalize(prevFrameDir);
+ 		// Rotate by 90 degrees to get tangent
+ 		prevFrameDirTanget.xy	= prevFrameDirTanget.yx;
+ 		prevFrameDirTanget.x	= -prevFrameDirTanget.x;
+ 		prevFrameDirTanget		*= currFrameSize;
+
+		// Push the tex coord futher along the streak for longer streaks 		
+		float texUlength = saturate(length(prevFrameDir.xyz)/0.1); // 0.3
+		tex.x = IN.size.x &gt; 0 ? 1/256 : texUlength;	
+		tex.y = IN.size.y &gt; 0 ? cvBaseAlphaRef.z : cvBaseAlphaRef.z + 15.0f / 128.0f;	// The v texcoord is calc in on the CPU
+		tex.z = IN.size.x &gt; 0 ? 0 : 1;
+		
+		pv = IN.size.x &gt; 0 ? currFramePos : prevFramePos;
+
+		// Adjust brightness for lower/higher speeds
+		vertexColour *= saturate(cameraSpeed  / 95);
+		
+		// Add the offset to create width for the streak along the tangent
+		//
+		pv.xy += sign(IN.size.y) * prevFrameDirTanget;
+		//pv.z = 1;
+	}
+	else
+	{
+		// Push offscreen to clip
+		pv = 1000;
+	}
+	
+	OUT.position = pv;
+	OUT.color = vertexColour;
+	OUT.tex = tex;
+	OUT.tex.w = -5;					// bias the mipmapping
+		
+	return OUT;
+}
+
+
+float4 pixel_shader_streak_flares(const VtoP_SFLARES IN) : COLOR
+{
+	float4 result = tex2Dbias(DIFFUSE_SAMPLER, IN.tex);;	
+	result *= IN.color;
+	
+	return result;
+}
+
+technique streak_flares
+{
+    pass p0
+    {
+        VertexShader = compile vs_1_1 vertex_shader_streak_flares();
+        PixelShader  = compile ps_2_0 pixel_shader_streak_flares();
+    }
+}
+
+
+///////////////////////////////////////////////////////////////////////////////////////
+//
+// Onscreen rain particle effect
+//
+struct VtoP_RAIN
+{
+	float4 position  : POSITION;
+	float4 tex       : TEXCOORD0;
+};
+
+VtoP_RAIN vertex_shader_passthru(const VS_INPUT IN)
+{
+	VtoP_RAIN OUT;
+	OUT.position = screen_position(IN.position);
+	OUT.position.w = 1.0f;
+	OUT.tex = IN.tex;
+
+	return OUT;
+}
+
+float4 pixel_shader_onscreen_distort(const VtoP_RAIN IN) : COLOR0
+{
+	float4 distortion = tex2D(DIFFUSE_SAMPLER, IN.tex);
+	float2 offset = distortion.gb * cvLocalCenter.ba + cvLocalCenter.rg;
+	float4 background = tex2D(MISCMAP1_SAMPLER, offset);
+	
+	// The opacity map has four different raindrop texture tiled horizontally.  The
+	// offset into this texure is stored in cvBaseAlphaRef.y
+	//
+	offset = IN.tex;
+	offset.x = cvBaseAlphaRef.y + IN.tex.x*0.25;
+	float4 opacity = tex2D(OPACITY_SAMPLER, offset);
+	
+	float4 result;
+	result = background * opacity.y;
+	result.w = opacity.r * cvBaseAlphaRef.x;
+
+	//result = opacity;
+	
+	return result;
+}
+
+technique onscreen_distort &lt;int shader = 1;&gt;
+{
+    pass p0
+    {
+        VertexShader = compile vs_1_1 vertex_shader_passthru();
+        PixelShader  = compile ps_2_0 pixel_shader_onscreen_distort();
+    }
+}
+
+#include "ZPrePass_fx.h"
+
+</file>
+  <file id="1" path="D:\eax-build1-s09-xenon\Oban\Speed\Xenon\Src\Render\Shaders\global.h" time="01c7f8c7-b0ef0cee">#ifndef GLOBAL_H
+#define GLOBAL_H
+
+#include "registermap.h"   
+
+// Defined out for the Xbox360 - only needed on the PC
+#define DECLARE_TEXTURE(texture)	
+#define ASSIGN_TEXTURE(texture)	
+#define DECLARE_MINFILTER(default_filter)			 MINFILTER = default_filter;
+#define DECLARE_MAGFILTER(default_filter)			 MAGFILTER = default_filter;
+#define DECLARE_MIPFILTER(default_filter)			 MIPFILTER = default_filter;
+
+/////////////////////////////////////////////////////////////////////////////////////////
+float4x4	cmWorldViewProj			: REG_cmWorldViewProj; //WORLDVIEWPROJECTION ;
+float4		cvScreenOffset			: REG_cvScreenOffset; //SCREENOFFSET;
+float4		cvVertexPowerBrightness : REG_cvVertexPowerBrightness;
+
+float4 world_position( float4 screen_pos )
+{
+ 	float4 p = mul(screen_pos, cmWorldViewProj);  
+	p.xy += cvScreenOffset.xy * p.w;
+    return p;
+}
+
+float4 screen_position( float4 screen_pos )
+{
+	screen_pos.xy += cvScreenOffset.xy;
+    return screen_pos;
+}
+
+float4 CalcVertexColour(float4 colour)
+{
+	float4 result = pow(colour, cvVertexPowerBrightness.x) * cvVertexPowerBrightness.y;
+	result.w = colour.w;
+	return result;
+}
+
+float3 ScaleHeadLightIntensity(float3 colour) 
+{
+	float3 result = colour * cvVertexPowerBrightness.z;
+	return result;
+}
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////
+// HDR Colour Space compression
+//
+// Convert to a log or psudeo-log colour space to save high dynamic range data
+/////////////////////////////////////////////////////////////////////////////////////////
+#define kCompressCoeff ( 1.0f )
+float3 CompressColourSpace(float3 colour)
+{
+	return colour / (kCompressCoeff+colour);
+}
+
+float3 DeCompressColourSpace(float3 colour)
+{
+	return colour / (kCompressCoeff-colour);
+}
+
+
+/////////////////////////////////////////////////////////////////////////////////////////
+// RGBE8 Encoding/Decoding
+// The RGBE8 format stores a mantissa per color channel and a shared exponent 
+// stored in alpha. Since the exponent is shared, it's computed based on the
+// highest intensity color component. The resulting color is RGB * 2^Alpha,
+// which scales the data across a logarithmic scale.
+/////////////////////////////////////////////////////////////////////////////////////////
+
+float4 EncodeRGBE8( in float3 rgb )	  
+{
+	float4 vEncoded;
+
+    // Determine the largest color component
+	float maxComponent = max( max(rgb.r, rgb.g), rgb.b );
+	
+	// Round to the nearest integer exponent
+	float fExp = ceil( log2(maxComponent) );
+
+    // Divide the components by the shared exponent
+	vEncoded.rgb = rgb / exp2(fExp);
+	
+	// Store the shared exponent in the alpha channel
+	vEncoded.a = (fExp + 128) / 255;
+
+	return vEncoded;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+float3 DecodeRGBE8( in float4 rgbe )
+{
+	float3 vDecoded;
+
+    // Retrieve the shared exponent
+	float fExp = rgbe.a * 255 - 128;
+	
+	// Multiply through the color components
+	vDecoded = rgbe.rgb * exp2(fExp);
+	
+	return vDecoded;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+#endif</file>
+  <file id="2" path="D:\eax-build1-s09-xenon\Oban\Speed\Xenon\Src\Render\Shaders\registermap.h" time="01c7f8c7-b0d997bb">
+// ------------------------------------------------------------------------------------------------------------------------------------------
+
+#define CONSTANT_RESERVED_DO_NOT_USE			(0)		/* 4 vectors [c0,c3] */
+
+// ------------------------------------------------------------------------------------------------------------------------------------------
+
+#define REG_RESERVED_DO_NOT_USE			register(c0)	/* 4 vectors [c0,c3] */
+
+#define REG_cmWorldMat					register(c4)	/* 4 vectors [c0,c3] */
+#define REG_cmWorldMatTranspose			register(c8)	/* 4 vectors [c4,c7] */
+#define REG_cmWorldView					register(c12)	/* 4 vectors [c8,c11] */
+#define REG_cmShadowMapWVP				register(c16)	/* 4 vectors [c12,c15] */
+#define REG_cmLightWVP					register(c20)	/* 4 vectors [c16,c19] */
+#define REG_cmWorldViewProj				register(c24)	/* 4 vectors [c20,c23] */
+#define REG_cmPrevWorldViewProj			register(c28)	/* 4 vectors [c24,c27] */
+#define REG_cvLocalEyePos				register(c32)	/* 1 vecotr	 [c32] */
+#define REG_cvLocalLightVec				register(c33)	/* 1 vecotr	 [c33] */
+#define REG_cfSkyDomeRotation			register(c34)	/* 1 vecotr	 [c34] */
+
+#define REG_cmLocalColourMatrix			register(c36)	/* 4 vectors [c36,c39] */
+#define REG_cmLocalDirectionMatrix		register(c40)	/* 4 vectors [c40,c43] */
+#define REG_cmLocalPositionMatrix		register(c44)	/* 4 vectors [c44,c47] */
+#define REG_cavHarmonicCoeff			register(c48)	/* 10 floats, 3 vectors, 1 pad vector [48,51] */
+
+#define REG_camBlendMatrices			register(c52)	/* 16 vectors [c52,c67] */
+#define REG_cavWorldHeadlightDirection	register(c68)	/* 2 vectors [c68,c69] */
+#define REG_cavWorldHeadlightPosition	register(c70)	/* 2 vectors [c70,c71] */
+#define REG_cavWorldHeadlightUpDirection register(c72)	/* 2 vectors [c72,c73] */
+
+#define REG_cmShadowMapVP				register(c68) // note clash with head light
+#define REG_cmShadowMapBiasMatrix		register(c72)	/* 4 vectors [c72, c75] */
+
+
+
+#define REG_cvWorldSunColour			register(c79)
+#define REG_cvWorldAmbientColour		register(c80)
+
+// available: [c82,c115] (but would alias cavPcaWeightsR and cavPcaWeightsG)
+// PCA/UCap parameters (ucap.fx, water.fx)
+#define REG_cafPcaMean					register(c81)	/* 1 vector */
+#define REG_cavPcaWeightsR				register(c82)	/* 22 vectors [c82,c103] */
+#define REG_cavPcaWeightsG				register(c104)	/* 22 vectors [c104,c125] */
+#define REG_cavPcaWeightsB				register(c126)	/* 22 vectors [c126,c147] */
+#define REG_cavPcaWeightsX				register(c148)	/* 8 vectors [c148,c155] */
+#define REG_cavPcaWeightsY				register(c156)	/* 8 vectors [c156,c163] */
+#define REG_cavPcaWeightsZ				register(c164)	/* 8 vectors [c164,c171] */
+#define REG_cavPcaWeightsNX				register(c172)	/* 8 vectors [c172,c179] */
+#define REG_cavPcaWeightsNY				register(c180)	/* 8 vectors [c180,c187] */
+#define REG_cavPcaWeightsNZ				register(c188)	/* 8 vectors [c188,c195] */
+#define REG_cavFeatureHeights			register(c196)	/* 1 vector */
+
+
+// The following parameters alias cavPcaWeightsG:
+#define REG_cfMipMapBias				register(c116)
+#define REG_cfBrightness				register(c117)
+#define REG_cfSurfaceReflection			register(c118)
+#define REG_cfRainIntensity				register(c119)
+#define REG_cfSpecularPower				register(c120)
+#define REG_cfMetallicScale				register(c121)
+#define REG_cfEnvmapPullAmount			register(c122)
+#define REG_cfEnvmapPower				register(c123)
+#define REG_PAD2						register(c125)
+
+// The following parameters alias cavPcaWeightsB:
+#define REG_cfCombinedBrightness		register(c126)
+#define REG_cvVisualEffectFadeColour	register(c127)	/* also aliases cfSkyAlphaTag */
+#define REG_cfSkyAlphaTag				register(c127)	/* also aliases cvVisualEffectFadeColour */
+#define REG_cfShadowVolumeOffset		register(c128)
+#define REG_cfRVMWorldBrightness		register(c129)
+#define REG_cfDesaturation				register(c130)
+#define REG_cfBloomScale				register(c131)
+#define REG_cfSplitScreenUVScale		register(c132)
+#define REG_cfColourCubeFilterBlend		register(c133)
+#define REG_cfTimeTicker				register(c134)
+#define REG_cfMiddleGray				register(c135)
+#define REG_cfBrightPassThreshold		register(c136)
+
+#define REG_cvScreenOffset				register(c137)
+#define REG_cvFog_Br_Plus_Bm			register(c138)
+#define REG_cvFog_One_Over_BrBm			register(c139)
+#define REG_cvFog_Const_1				register(c140)
+#define REG_cvFog_Const_2				register(c141)
+#define REG_cvFog_Const_3				register(c142)
+#define REG_cvAmbientColour				register(c143)
+#define REG_cvShadowParams0				register(c144)
+#define REG_cvShadowParams1				register(c145)
+
+
+// The following parameters alias cavPcaWeightsX:
+#define REG_cvDiffuseColour				register(c148)
+#define REG_cvSpecularColour			register(c149)
+// available: [c150,c155] (but would alias cavPcaWeightsX)
+
+// The following parameters alias cavPcaWeightsY:
+#define REG_cvShadowColour				register(c156)
+#define REG_cvTextureOffset				register(c161)
+#define REG_cvLocalCenter				register(c162)
+#define REG_cvTreeParams				register(c163)
+
+// The following parameters alias cavPcaWeightsZ:
+#define REG_cvBaseAlphaRef				register(c164)
+#define REG_cvCloudIntensity			register(c165)
+#define REG_cvLocalLightPos				register(c166)
+#define REG_cvPixelizationScale			register(c167)
+#define REG_cvGrassColour				register(c169)
+
+// The following parameters alias cavPcaWeightsNX:
+#define REG_cvDepthOfFieldParams		register(c172)	/* aliases cavFeatureHeights */
+#define REG_cvBlurParams				register(c173)
+// The following parameters alias cavPcaWeightsNX and cavPcaWeightsNY:
+#define REG_cavSampleOffsetWeights		register(c174)	/* 16 vectors [c174,c189] */
+
+#define REG_PAD0						register(c190)	/* free space!! */
+
+#define REG_cvFogValue					register(c206)
+#define REG_cvFogColour					register(c207)
+#define REG_cfSkyFogFalloff				register(c208)
+#define REG_cfLightMapVertColBlend		register(c209)
+
+#define REG_cvLightColour				register(c210)
+#define REG_cvLightPosition				register(c211)
+
+#define REG_cvLightDirection			register(c212)
+#define REG_cfShadowMapEnabled			register(c213)
+#define REG_cfVSMEnabled				register(c214)
+#define REG_cfReceiveShadow				register(c215)
+
+#define REG_cvVertexPowerBrightness		register(c216)
+
+#define REG_cfFogEnable					register(c240)
+
+
+
+// Light Material Registers - alias REG_cavLightDirections
+
+#define REG_cvDiffuseMin				register(c228)
+#define REG_cvDiffuseRange				register(c229)
+#define REG_cvEnvmapMin					register(c230)
+#define REG_cvEnvmapRange				register(c231)
+#define REG_cvSpecularMin				register(c232)
+#define REG_cvSpecularRange				register(c233)
+#define REG_cvSpecular1Min				register(c234)
+#define REG_cvSpecular1Range			register(c235)
+#define REG_cvPowers					register(c236)
+#define REG_cvClampAndScales			register(c237)
+#define REG_cvFlakes					register(c238)
+#define REG_cvVinylScales				register(c239)
+
+#define	REG_cvGradientParams            register(c240)
+#define	REG_cvGradientColour            register(c241)
+#define	REG_cvGradientColourE           register(c242)
+#define	REG_ScreenRez                  	register(c243)
+#define REG_cfScaleUVs					register(c244)
+
+// for the constants heavy shader instancing
+// 4 vectors, c4 to c7
+#define REG_cmInstanceVP					register(c4)
+#define REG_cvInstanceData					register(c8)
+#define REG_cvInstanceWorldSunPosition		register(c9)
+#define REG_cvInstanceWorldSunColour		register(c10)
+#define REG_cvInstanceWorldAmbientColour	register(c11)
+#define REG_cvInstancedFogColour			register(c12)
+#define REG_cvInstancedFogValue				register(c13)
+#define REG_cvInstanceArray					register(c14)
+
+
+// Aliased With Light Materials ...
+
+#define REG_cfDrawDepthOfField			register(c230)
+
+
+#define REG_ciVSMEnabled				register(c)
+#define REG_ciShadowMapPCFLevel			register(c)
+#define REG_ciShadowMapAlphaEnabled		register(c)
+#define REG_ciDoCarShadowMap			register(c)
+#define REG_cbIsParallexMapped			register(c)
+#define REG_cbDecompressPCA				register(c)
+
+#define REG_DIFFUSE_SAMPLER				register(c)
+#define REG_HEIGHTMAP_SAMPLER			register(c)
+#define REG_MISCMAP1_SAMPLER			register(c)
+#define REG_MISCMAP2_SAMPLER			register(c)
+#define REG_MISCMAP3_SAMPLER			register(c)
+#define REG_MISCMAP4_SAMPLER			register(c)
+#define REG_OPACITY_SAMPLER				register(c)
+#define REG_VOLUMEMAP_SAMPLER			register(c)
+#define REG_ENVIROMAP_SAMPLER			register(c)
+#define REG_NORMALMAP_SAMPLER			register(c)
+#define REG_SHADOWMAP_SAMPLER			register(c)
+#define REG_SHADOWVOLUME_COLOUR			register(c)
+#define REG_SPECULARMAP_SAMPLER			register(c)
+#define REG_PCA_COMPONENTS0_SAMPLER		register(c)
+#define REG_PCA_COMPONENTS1_SAMPLER		register(c)
+#define REG_PCA_COMPONENTS2_SAMPLER		register(c)
+#define REG_PCA_COMPONENTS3_SAMPLER		register(c)
+#define REG_HEADLIGHT_SAMPLER			register(c)
+#define REG_HEADLIGHT_CLIP_SAMPLER		register(c)
+#define REG_MIPMAP_GEN_SAMPLER			register(c)
+
+
+
+
+
+</file>
+  <file id="3" path="D:\eax-build1-s09-xenon\Oban\Speed\Xenon\Src\Render\Shaders\ZPrePass_fx.h" time="01c7f8c7-b0dbfa16">/////////////////////////////////////////////////////////////////////////////////////////
+
+struct PS_INPUT_Z
+{
+	float4 position		: POSITION;
+};
+
+PS_INPUT_Z ZPassVertexShader(const VS_INPUT IN)
+{
+	PS_INPUT_Z OUT;
+
+	OUT.position = mul(IN.position, cmWorldViewProj);
+
+	return OUT;
+}
+
+technique ZPrePass &lt;int shader = 1;&gt;
+{
+	pass p0
+	{
+		VertexShader		= compile vs_1_1 ZPassVertexShader();
+		PixelShader			= NULL;
+	}
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+struct PS_INPUT_VERTEX_COLOUR
+{
+	float4 position			: POSITION;
+	float4 color			: COLOR;
+};
+
+PS_INPUT_VERTEX_COLOUR VertexShaderVertexColour(	float4 position : POSITION,
+													float4 color    : COLOR)
+{
+	PS_INPUT_VERTEX_COLOUR OUT;
+
+	OUT.position = mul(position, cmWorldViewProj);
+	OUT.color	 = color;
+
+	return OUT;
+}
+
+float4 PixelShaderVertexColour(const PS_INPUT_VERTEX_COLOUR IN) : COLOR0
+{
+	return IN.color;
+}
+
+technique RenderVertexColour &lt;int shader = 1;&gt;
+{
+	pass p0
+	{
+		VertexShader = compile vs_1_1 VertexShaderVertexColour();
+		PixelShader  = compile ps_2_0 PixelShaderVertexColour();
+	}
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+</file>
+ </files>
+ <tool name="FXLite">
+  <defines>
+   <define name="PLAT_XENON" value="" />
+  </defines>
+  <arguments>
+   <argument name="/Zi" value="false" />
+   <argument name="/Vd" value="false" />
+   <argument name="/Xu0_deprecated" value="false" />
+   <argument name="/Odu_deprecated" value="false" />
+   <argument name="/XOd_" value="false" />
+   <argument name="/XOu" value="false" />
+   <argument name="/Xmaxtempreg" value="0" />
+   <argument name="PsSampBase" value="0" />
+   <argument name="PsSampCount" value="0" />
+   <argument name="VsSampBase" value="0" />
+   <argument name="VsSampCount" value="0" />
+   <argument name="VsInstCount" value="0" />
+   <argument name="PsInstCount" value="0" />
+   <argument name="/Od" value="false" />
+   <argument name="/Zpr" value="false" />
+   <argument name="/Zpc" value="false" />
+   <argument name="/Gpp" value="false" />
+   <argument name="/Op" value="false" />
+   <argument name="/Gfa" value="false" />
+   <argument name="/Gfp" value="false" />
+   <argument name="/XZc:zeroInit" value="false" />
+   <argument name="/XVe" value="false" />
+   <argument name="/Xbe:3-" value="false" />
+   <argument name="/Xbe:1-" value="false" />
+   <argument name="/XQInomaskedexports" value="false" />
+   <argument name="/XOautoz" value="false" />
+   <argument name="/XfxAv" value="false" />
+   <argument name="/XfxAs" value="false" />
+   <argument name="/XfxPv" value="false" />
+  </arguments>
+ </tool>
+ <shaders>
+  <shader entrypoint="PixelShaderVertexColour" target="ps_3_0" FxlTechniqueName="particles" FxlTechnique="5" FxlPassName="p0" FxlPass="0" ZPass="0" pdbHint="4e4a0000-f4c01195-cee4f33d">
+   <constanttable>
+   </constanttable>
+   <sourcemap>
+    <statement pc="1" file="3" line="46" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="PixelShaderVertexColour" retID="211">
+     <parameter id="210" />
+    </function>
+    <function id="1" name="VertexShaderVertexColour" retID="208">
+     <parameter id="206" />
+     <parameter id="207" />
+    </function>
+    <function id="2" name="ZPassVertexShader" retID="200">
+     <parameter id="199" />
+    </function>
+    <function id="3" name="pixel_shader_onscreen_distort" retID="190">
+     <parameter id="189" />
+    </function>
+    <function id="4" name="vertex_shader_passthru" retID="187">
+     <parameter id="186" />
+    </function>
+    <function id="5" name="pixel_shader_streak_flares" retID="181">
+     <parameter id="180" />
+    </function>
+    <function id="6" name="vertex_shader_streak_flares" retID="161">
+     <parameter id="160" />
+    </function>
+    <function id="7" name="pixel_shader_flares" retID="150">
+     <parameter id="149" />
+    </function>
+    <function id="8" name="vertex_shader_flares" retID="139">
+     <parameter id="138" />
+    </function>
+    <function id="9" name="pixel_shader_particles" retID="110">
+     <parameter id="109" />
+    </function>
+    <function id="10" name="vertex_shader_particles" retID="81">
+     <parameter id="80" />
+    </function>
+    <function id="11" name="BuildRotate" retID="74">
+     <parameter id="72" />
+     <parameter id="73" />
+    </function>
+    <function id="12" name="DecodeRGBE8" retID="24">
+     <parameter id="23" />
+    </function>
+    <function id="13" name="EncodeRGBE8" retID="19">
+     <parameter id="18" />
+    </function>
+    <function id="14" name="DeCompressColourSpace" retID="17">
+     <parameter id="16" />
+    </function>
+    <function id="15" name="CompressColourSpace" retID="15">
+     <parameter id="14" />
+    </function>
+    <function id="16" name="ScaleHeadLightIntensity" retID="12">
+     <parameter id="11" />
+    </function>
+    <function id="17" name="CalcVertexColour" retID="9">
+     <parameter id="8" />
+    </function>
+    <function id="18" name="screen_position" retID="7">
+     <parameter id="6" />
+    </function>
+    <function id="19" name="world_position" retID="4">
+     <parameter id="3" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+   </VfetchInfo>
+   <InterpolatorInfo>
+    <Interpolator Register="0" Semantic="0xa0" Mask="xyzw" />
+   </InterpolatorInfo>
+   <LiteralFloats>
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+  <shader entrypoint="VertexShaderVertexColour" target="vs_3_0" FxlTechniqueName="particles" FxlTechnique="5" FxlPassName="p0" FxlPass="0" ZPass="0" pdbHint="4e4a0001-f4c01195-cee4f33d">
+   <constanttable>
+    <constant register="c24" count="4">
+     <type name="cmWorldViewProj" class="matrix_columns" type="float" rows="4" columns="4" />
+    </constant>
+   </constanttable>
+   <sourcemap>
+    <statement pc="3" file="3" line="33" scope="-1" lastinstruction="0" />
+    <statement pc="4" file="3" line="33" scope="-1" lastinstruction="0" />
+    <statement pc="0.1" file="3" line="33" scope="-1" lastinstruction="0" />
+    <statement pc="5" file="3" line="38" scope="-1" lastinstruction="0" />
+    <statement pc="6" file="3" line="38" scope="-1" lastinstruction="0" />
+    <statement pc="7" file="3" line="38" scope="-1" lastinstruction="0" />
+    <statement pc="8" file="3" line="38" scope="-1" lastinstruction="0" />
+    <statement pc="1.1" file="3" line="38" scope="-1" lastinstruction="0" />
+    <statement pc="9" file="3" line="41" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="PixelShaderVertexColour" retID="211">
+     <parameter id="210" />
+    </function>
+    <function id="1" name="VertexShaderVertexColour" retID="208">
+     <parameter id="206" />
+     <parameter id="207" />
+    </function>
+    <function id="2" name="ZPassVertexShader" retID="200">
+     <parameter id="199" />
+    </function>
+    <function id="3" name="pixel_shader_onscreen_distort" retID="190">
+     <parameter id="189" />
+    </function>
+    <function id="4" name="vertex_shader_passthru" retID="187">
+     <parameter id="186" />
+    </function>
+    <function id="5" name="pixel_shader_streak_flares" retID="181">
+     <parameter id="180" />
+    </function>
+    <function id="6" name="vertex_shader_streak_flares" retID="161">
+     <parameter id="160" />
+    </function>
+    <function id="7" name="pixel_shader_flares" retID="150">
+     <parameter id="149" />
+    </function>
+    <function id="8" name="vertex_shader_flares" retID="139">
+     <parameter id="138" />
+    </function>
+    <function id="9" name="pixel_shader_particles" retID="110">
+     <parameter id="109" />
+    </function>
+    <function id="10" name="vertex_shader_particles" retID="81">
+     <parameter id="80" />
+    </function>
+    <function id="11" name="BuildRotate" retID="74">
+     <parameter id="72" />
+     <parameter id="73" />
+    </function>
+    <function id="12" name="DecodeRGBE8" retID="24">
+     <parameter id="23" />
+    </function>
+    <function id="13" name="EncodeRGBE8" retID="19">
+     <parameter id="18" />
+    </function>
+    <function id="14" name="DeCompressColourSpace" retID="17">
+     <parameter id="16" />
+    </function>
+    <function id="15" name="CompressColourSpace" retID="15">
+     <parameter id="14" />
+    </function>
+    <function id="16" name="ScaleHeadLightIntensity" retID="12">
+     <parameter id="11" />
+    </function>
+    <function id="17" name="CalcVertexColour" retID="9">
+     <parameter id="8" />
+    </function>
+    <function id="18" name="screen_position" retID="7">
+     <parameter id="6" />
+    </function>
+    <function id="19" name="world_position" retID="4">
+     <parameter id="3" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+    <vfetch Address="3" Register="1" DestSwizzle="xyzw" Semantic="0x00" End="false" />
+    <vfetch Address="4" Register="0" DestSwizzle="xyzw" Semantic="0xa0" End="true" />
+   </VfetchInfo>
+   <InterpolatorInfo>
+    <Interpolator Register="0" Semantic="0xa0" Mask="xyzw" />
+   </InterpolatorInfo>
+   <LiteralFloats>
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+  <shader entrypoint="ZPassVertexShader" target="vs_3_0" FxlTechniqueName="flares" FxlTechnique="4" FxlPassName="p0" FxlPass="0" ZPass="0" pdbHint="4e4a0002-f4c01195-cee4f33d">
+   <constanttable>
+    <constant register="c24" count="4">
+     <type name="cmWorldViewProj" class="matrix_columns" type="float" rows="4" columns="4" />
+    </constant>
+   </constanttable>
+   <sourcemap>
+    <statement pc="3" file="3" line="8" scope="-1" lastinstruction="0" />
+    <statement pc="0.1" file="3" line="8" scope="-1" lastinstruction="0" />
+    <statement pc="4" file="3" line="12" scope="-1" lastinstruction="0" />
+    <statement pc="5" file="3" line="12" scope="-1" lastinstruction="0" />
+    <statement pc="6" file="3" line="12" scope="-1" lastinstruction="0" />
+    <statement pc="7" file="3" line="12" scope="-1" lastinstruction="0" />
+    <statement pc="1.1" file="3" line="12" scope="-1" lastinstruction="0" />
+    <statement pc="2.0" file="3" line="14" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="PixelShaderVertexColour" retID="211">
+     <parameter id="210" />
+    </function>
+    <function id="1" name="VertexShaderVertexColour" retID="208">
+     <parameter id="206" />
+     <parameter id="207" />
+    </function>
+    <function id="2" name="ZPassVertexShader" retID="200">
+     <parameter id="199" />
+    </function>
+    <function id="3" name="pixel_shader_onscreen_distort" retID="190">
+     <parameter id="189" />
+    </function>
+    <function id="4" name="vertex_shader_passthru" retID="187">
+     <parameter id="186" />
+    </function>
+    <function id="5" name="pixel_shader_streak_flares" retID="181">
+     <parameter id="180" />
+    </function>
+    <function id="6" name="vertex_shader_streak_flares" retID="161">
+     <parameter id="160" />
+    </function>
+    <function id="7" name="pixel_shader_flares" retID="150">
+     <parameter id="149" />
+    </function>
+    <function id="8" name="vertex_shader_flares" retID="139">
+     <parameter id="138" />
+    </function>
+    <function id="9" name="pixel_shader_particles" retID="110">
+     <parameter id="109" />
+    </function>
+    <function id="10" name="vertex_shader_particles" retID="81">
+     <parameter id="80" />
+    </function>
+    <function id="11" name="BuildRotate" retID="74">
+     <parameter id="72" />
+     <parameter id="73" />
+    </function>
+    <function id="12" name="DecodeRGBE8" retID="24">
+     <parameter id="23" />
+    </function>
+    <function id="13" name="EncodeRGBE8" retID="19">
+     <parameter id="18" />
+    </function>
+    <function id="14" name="DeCompressColourSpace" retID="17">
+     <parameter id="16" />
+    </function>
+    <function id="15" name="CompressColourSpace" retID="15">
+     <parameter id="14" />
+    </function>
+    <function id="16" name="ScaleHeadLightIntensity" retID="12">
+     <parameter id="11" />
+    </function>
+    <function id="17" name="CalcVertexColour" retID="9">
+     <parameter id="8" />
+    </function>
+    <function id="18" name="screen_position" retID="7">
+     <parameter id="6" />
+    </function>
+    <function id="19" name="world_position" retID="4">
+     <parameter id="3" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+    <vfetch Address="3" Register="0" DestSwizzle="xyzw" Semantic="0x00" End="false" />
+   </VfetchInfo>
+   <InterpolatorInfo>
+   </InterpolatorInfo>
+   <LiteralFloats>
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+  <shader entrypoint="pixel_shader_onscreen_distort" target="ps_3_0" FxlTechniqueName="streak_flares" FxlTechnique="3" FxlPassName="p0" FxlPass="0" ZPass="0" pdbHint="4e4a0003-f4c01195-cee4f33d">
+   <constanttable>
+    <constant register="s0">
+     <type name="DIFFUSE_SAMPLER" class="object" type="sampler2D" />
+    </constant>
+    <constant register="s1">
+     <type name="MISCMAP1_SAMPLER" class="object" type="sampler2D" />
+    </constant>
+    <constant register="s2">
+     <type name="OPACITY_SAMPLER" class="object" type="sampler2D" />
+    </constant>
+    <constant register="c164">
+     <type name="cvBaseAlphaRef" class="vector" type="float" columns="4" />
+    </constant>
+    <constant register="c162">
+     <type name="cvLocalCenter" class="vector" type="float" columns="4" />
+    </constant>
+   </constanttable>
+   <sourcemap>
+    <statement pc="2" file="0" line="538" scope="-1" lastinstruction="0" />
+    <statement pc="3" file="0" line="547" scope="-1" lastinstruction="0" />
+    <statement pc="4" file="0" line="546" scope="-1" lastinstruction="0" />
+    <statement pc="5" file="0" line="539" scope="-1" lastinstruction="0" />
+    <statement pc="6" file="0" line="540" scope="-1" lastinstruction="0" />
+    <statement pc="7" file="0" line="547" scope="-1" lastinstruction="0" />
+    <statement pc="0.1" file="0" line="547" scope="-1" lastinstruction="0" />
+    <statement pc="8" file="0" line="550" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="PixelShaderVertexColour" retID="211">
+     <parameter id="210" />
+    </function>
+    <function id="1" name="VertexShaderVertexColour" retID="208">
+     <parameter id="206" />
+     <parameter id="207" />
+    </function>
+    <function id="2" name="ZPassVertexShader" retID="200">
+     <parameter id="199" />
+    </function>
+    <function id="3" name="pixel_shader_onscreen_distort" retID="190">
+     <parameter id="189" />
+    </function>
+    <function id="4" name="vertex_shader_passthru" retID="187">
+     <parameter id="186" />
+    </function>
+    <function id="5" name="pixel_shader_streak_flares" retID="181">
+     <parameter id="180" />
+    </function>
+    <function id="6" name="vertex_shader_streak_flares" retID="161">
+     <parameter id="160" />
+    </function>
+    <function id="7" name="pixel_shader_flares" retID="150">
+     <parameter id="149" />
+    </function>
+    <function id="8" name="vertex_shader_flares" retID="139">
+     <parameter id="138" />
+    </function>
+    <function id="9" name="pixel_shader_particles" retID="110">
+     <parameter id="109" />
+    </function>
+    <function id="10" name="vertex_shader_particles" retID="81">
+     <parameter id="80" />
+    </function>
+    <function id="11" name="BuildRotate" retID="74">
+     <parameter id="72" />
+     <parameter id="73" />
+    </function>
+    <function id="12" name="DecodeRGBE8" retID="24">
+     <parameter id="23" />
+    </function>
+    <function id="13" name="EncodeRGBE8" retID="19">
+     <parameter id="18" />
+    </function>
+    <function id="14" name="DeCompressColourSpace" retID="17">
+     <parameter id="16" />
+    </function>
+    <function id="15" name="CompressColourSpace" retID="15">
+     <parameter id="14" />
+    </function>
+    <function id="16" name="ScaleHeadLightIntensity" retID="12">
+     <parameter id="11" />
+    </function>
+    <function id="17" name="CalcVertexColour" retID="9">
+     <parameter id="8" />
+    </function>
+    <function id="18" name="screen_position" retID="7">
+     <parameter id="6" />
+    </function>
+    <function id="19" name="world_position" retID="4">
+     <parameter id="3" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+   </VfetchInfo>
+   <InterpolatorInfo>
+    <Interpolator Register="0" Semantic="0x50" Mask="xyzw" />
+   </InterpolatorInfo>
+   <LiteralFloats>
+    <Float Register="252" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="253" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="254" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="255" value0="0.25" value1="0" value2="0" value3="0" />
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+  <shader entrypoint="vertex_shader_passthru" target="vs_3_0" FxlTechniqueName="streak_flares" FxlTechnique="3" FxlPassName="p0" FxlPass="0" ZPass="0" pdbHint="4e4a0004-f4c01195-cee4f33d">
+   <constanttable>
+    <constant register="c137">
+     <type name="cvScreenOffset" class="vector" type="float" columns="4" />
+    </constant>
+   </constanttable>
+   <sourcemap>
+    <statement pc="3" file="0" line="526" scope="-1" lastinstruction="0" />
+    <statement pc="4" file="0" line="526" scope="-1" lastinstruction="0" />
+    <statement pc="0.1" file="0" line="526" scope="-1" lastinstruction="0" />
+    <statement pc="5" file="0" line="533" scope="-1" lastinstruction="0" />
+    <statement pc="6" file="1" line="27" scope="-1" lastinstruction="0" />
+    <statement pc="1.1" file="1" line="27" scope="-1" lastinstruction="0" />
+    <statement pc="7" file="0" line="533" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="PixelShaderVertexColour" retID="211">
+     <parameter id="210" />
+    </function>
+    <function id="1" name="VertexShaderVertexColour" retID="208">
+     <parameter id="206" />
+     <parameter id="207" />
+    </function>
+    <function id="2" name="ZPassVertexShader" retID="200">
+     <parameter id="199" />
+    </function>
+    <function id="3" name="pixel_shader_onscreen_distort" retID="190">
+     <parameter id="189" />
+    </function>
+    <function id="4" name="vertex_shader_passthru" retID="187">
+     <parameter id="186" />
+    </function>
+    <function id="5" name="pixel_shader_streak_flares" retID="181">
+     <parameter id="180" />
+    </function>
+    <function id="6" name="vertex_shader_streak_flares" retID="161">
+     <parameter id="160" />
+    </function>
+    <function id="7" name="pixel_shader_flares" retID="150">
+     <parameter id="149" />
+    </function>
+    <function id="8" name="vertex_shader_flares" retID="139">
+     <parameter id="138" />
+    </function>
+    <function id="9" name="pixel_shader_particles" retID="110">
+     <parameter id="109" />
+    </function>
+    <function id="10" name="vertex_shader_particles" retID="81">
+     <parameter id="80" />
+    </function>
+    <function id="11" name="BuildRotate" retID="74">
+     <parameter id="72" />
+     <parameter id="73" />
+    </function>
+    <function id="12" name="DecodeRGBE8" retID="24">
+     <parameter id="23" />
+    </function>
+    <function id="13" name="EncodeRGBE8" retID="19">
+     <parameter id="18" />
+    </function>
+    <function id="14" name="DeCompressColourSpace" retID="17">
+     <parameter id="16" />
+    </function>
+    <function id="15" name="CompressColourSpace" retID="15">
+     <parameter id="14" />
+    </function>
+    <function id="16" name="ScaleHeadLightIntensity" retID="12">
+     <parameter id="11" />
+    </function>
+    <function id="17" name="CalcVertexColour" retID="9">
+     <parameter id="8" />
+    </function>
+    <function id="18" name="screen_position" retID="7">
+     <parameter id="6" />
+    </function>
+    <function id="19" name="world_position" retID="4">
+     <parameter id="3" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+    <vfetch Address="3" Register="1" DestSwizzle="xyz1" Semantic="0x00" End="false" />
+    <vfetch Address="4" Register="0" DestSwizzle="xyzw" Semantic="0x50" End="true" />
+   </VfetchInfo>
+   <InterpolatorInfo>
+    <Interpolator Register="0" Semantic="0x50" Mask="xyzw" />
+   </InterpolatorInfo>
+   <LiteralFloats>
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+  <shader entrypoint="pixel_shader_streak_flares" target="ps_3_0" FxlTechniqueName="onscreen_distort" FxlTechnique="2" FxlPassName="p0" FxlPass="0" ZPass="0" pdbHint="4e4a0005-f4c01195-cee4f33d">
+   <constanttable>
+    <constant register="s0">
+     <type name="DIFFUSE_SAMPLER" class="object" type="sampler2D" />
+    </constant>
+   </constanttable>
+   <sourcemap>
+    <statement pc="2" file="0" line="500" scope="-1" lastinstruction="0" />
+    <statement pc="3" file="0" line="500" scope="-1" lastinstruction="0" />
+    <statement pc="0.1" file="0" line="500" scope="-1" lastinstruction="0" />
+    <statement pc="4" file="0" line="501" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="PixelShaderVertexColour" retID="211">
+     <parameter id="210" />
+    </function>
+    <function id="1" name="VertexShaderVertexColour" retID="208">
+     <parameter id="206" />
+     <parameter id="207" />
+    </function>
+    <function id="2" name="ZPassVertexShader" retID="200">
+     <parameter id="199" />
+    </function>
+    <function id="3" name="pixel_shader_onscreen_distort" retID="190">
+     <parameter id="189" />
+    </function>
+    <function id="4" name="vertex_shader_passthru" retID="187">
+     <parameter id="186" />
+    </function>
+    <function id="5" name="pixel_shader_streak_flares" retID="181">
+     <parameter id="180" />
+    </function>
+    <function id="6" name="vertex_shader_streak_flares" retID="161">
+     <parameter id="160" />
+    </function>
+    <function id="7" name="pixel_shader_flares" retID="150">
+     <parameter id="149" />
+    </function>
+    <function id="8" name="vertex_shader_flares" retID="139">
+     <parameter id="138" />
+    </function>
+    <function id="9" name="pixel_shader_particles" retID="110">
+     <parameter id="109" />
+    </function>
+    <function id="10" name="vertex_shader_particles" retID="81">
+     <parameter id="80" />
+    </function>
+    <function id="11" name="BuildRotate" retID="74">
+     <parameter id="72" />
+     <parameter id="73" />
+    </function>
+    <function id="12" name="DecodeRGBE8" retID="24">
+     <parameter id="23" />
+    </function>
+    <function id="13" name="EncodeRGBE8" retID="19">
+     <parameter id="18" />
+    </function>
+    <function id="14" name="DeCompressColourSpace" retID="17">
+     <parameter id="16" />
+    </function>
+    <function id="15" name="CompressColourSpace" retID="15">
+     <parameter id="14" />
+    </function>
+    <function id="16" name="ScaleHeadLightIntensity" retID="12">
+     <parameter id="11" />
+    </function>
+    <function id="17" name="CalcVertexColour" retID="9">
+     <parameter id="8" />
+    </function>
+    <function id="18" name="screen_position" retID="7">
+     <parameter id="6" />
+    </function>
+    <function id="19" name="world_position" retID="4">
+     <parameter id="3" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+   </VfetchInfo>
+   <InterpolatorInfo>
+    <Interpolator Register="0" Semantic="0xa0" Mask="xyzw" />
+    <Interpolator Register="1" Semantic="0x50" Mask="xyzw" />
+   </InterpolatorInfo>
+   <LiteralFloats>
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+  <shader entrypoint="vertex_shader_streak_flares" target="vs_3_0" FxlTechniqueName="onscreen_distort" FxlTechnique="2" FxlPassName="p0" FxlPass="0" ZPass="0" pdbHint="4e4a0006-f4c01195-cee4f33d">
+   <constanttable>
+    <constant register="c24" count="4">
+     <type name="cmWorldViewProj" class="matrix_columns" type="float" rows="4" columns="4" />
+    </constant>
+    <constant register="c164">
+     <type name="cvBaseAlphaRef" class="vector" type="float" columns="4" />
+    </constant>
+   </constanttable>
+   <sourcemap>
+    <statement pc="6" file="0" line="422" scope="-1" lastinstruction="0" />
+    <statement pc="7" file="0" line="422" scope="-1" lastinstruction="0" />
+    <statement pc="8" file="0" line="422" scope="-1" lastinstruction="0" />
+    <statement pc="9" file="0" line="422" scope="-1" lastinstruction="0" />
+    <statement pc="10" file="0" line="434" scope="-1" lastinstruction="0" />
+    <statement pc="11" file="0" line="449" scope="-1" lastinstruction="0" />
+    <statement pc="12" file="0" line="441" scope="-1" lastinstruction="0" />
+    <statement pc="13" file="0" line="470" scope="-1" lastinstruction="0" />
+    <statement pc="14" file="0" line="470" scope="-1" lastinstruction="0" />
+    <statement pc="15" file="0" line="453" scope="-1" lastinstruction="0" />
+    <statement pc="16" file="0" line="446" scope="-1" lastinstruction="0" />
+    <statement pc="17" file="0" line="452" scope="-1" lastinstruction="0" />
+    <statement pc="18" file="0" line="452" scope="-1" lastinstruction="0" />
+    <statement pc="19" file="0" line="449" scope="-1" lastinstruction="0" />
+    <statement pc="20" file="0" line="452" scope="-1" lastinstruction="0" />
+    <statement pc="21" file="0" line="452" scope="-1" lastinstruction="0" />
+    <statement pc="22" file="0" line="452" scope="-1" lastinstruction="0" />
+    <statement pc="23" file="0" line="446" scope="-1" lastinstruction="0" />
+    <statement pc="24" file="0" line="452" scope="-1" lastinstruction="0" />
+    <statement pc="25" file="0" line="453" scope="-1" lastinstruction="0" />
+    <statement pc="26" file="0" line="456" scope="-1" lastinstruction="0" />
+    <statement pc="27" file="0" line="480" scope="-1" lastinstruction="0" />
+    <statement pc="28" file="0" line="480" scope="-1" lastinstruction="0" />
+    <statement pc="29" file="0" line="446" scope="-1" lastinstruction="0" />
+    <statement pc="30" file="0" line="446" scope="-1" lastinstruction="0" />
+    <statement pc="31" file="0" line="453" scope="-1" lastinstruction="0" />
+    <statement pc="32" file="0" line="453" scope="-1" lastinstruction="0" />
+    <statement pc="33" file="0" line="456" scope="-1" lastinstruction="0" />
+    <statement pc="34" file="0" line="453" scope="-1" lastinstruction="0" />
+    <statement pc="35" file="0" line="453" scope="-1" lastinstruction="0" />
+    <statement pc="36" file="0" line="473" scope="-1" lastinstruction="0" />
+    <statement pc="37" file="0" line="473" scope="-1" lastinstruction="0" />
+    <statement pc="38" file="0" line="460" scope="-1" lastinstruction="0" />
+    <statement pc="39" file="0" line="460" scope="-1" lastinstruction="0" />
+    <statement pc="40" file="0" line="456" scope="-1" lastinstruction="0" />
+    <statement pc="41" file="0" line="480" scope="-1" lastinstruction="0" />
+    <statement pc="42" file="0" line="461" scope="-1" lastinstruction="0" />
+    <statement pc="43" file="0" line="471" scope="-1" lastinstruction="0" />
+    <statement pc="44" file="0" line="468" scope="-1" lastinstruction="0" />
+    <statement pc="45" file="0" line="461" scope="-1" lastinstruction="0" />
+    <statement pc="46" file="0" line="469" scope="-1" lastinstruction="0" />
+    <statement pc="47" file="0" line="476" scope="-1" lastinstruction="0" />
+    <statement pc="48" file="0" line="465" scope="-1" lastinstruction="0" />
+    <statement pc="49" file="0" line="480" scope="-1" lastinstruction="0" />
+    <statement pc="51" file="0" line="494" scope="-1" lastinstruction="0" />
+    <statement pc="5.0" file="0" line="494" scope="-1" lastinstruction="0" />
+    <statement pc="52" file="0" line="494" scope="-1" lastinstruction="0" />
+    <statement pc="53" file="0" line="494" scope="-1" lastinstruction="0" />
+    <statement pc="54" file="0" line="494" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="PixelShaderVertexColour" retID="211">
+     <parameter id="210" />
+    </function>
+    <function id="1" name="VertexShaderVertexColour" retID="208">
+     <parameter id="206" />
+     <parameter id="207" />
+    </function>
+    <function id="2" name="ZPassVertexShader" retID="200">
+     <parameter id="199" />
+    </function>
+    <function id="3" name="pixel_shader_onscreen_distort" retID="190">
+     <parameter id="189" />
+    </function>
+    <function id="4" name="vertex_shader_passthru" retID="187">
+     <parameter id="186" />
+    </function>
+    <function id="5" name="pixel_shader_streak_flares" retID="181">
+     <parameter id="180" />
+    </function>
+    <function id="6" name="vertex_shader_streak_flares" retID="161">
+     <parameter id="160" />
+    </function>
+    <function id="7" name="pixel_shader_flares" retID="150">
+     <parameter id="149" />
+    </function>
+    <function id="8" name="vertex_shader_flares" retID="139">
+     <parameter id="138" />
+    </function>
+    <function id="9" name="pixel_shader_particles" retID="110">
+     <parameter id="109" />
+    </function>
+    <function id="10" name="vertex_shader_particles" retID="81">
+     <parameter id="80" />
+    </function>
+    <function id="11" name="BuildRotate" retID="74">
+     <parameter id="72" />
+     <parameter id="73" />
+    </function>
+    <function id="12" name="DecodeRGBE8" retID="24">
+     <parameter id="23" />
+    </function>
+    <function id="13" name="EncodeRGBE8" retID="19">
+     <parameter id="18" />
+    </function>
+    <function id="14" name="DeCompressColourSpace" retID="17">
+     <parameter id="16" />
+    </function>
+    <function id="15" name="CompressColourSpace" retID="15">
+     <parameter id="14" />
+    </function>
+    <function id="16" name="ScaleHeadLightIntensity" retID="12">
+     <parameter id="11" />
+    </function>
+    <function id="17" name="CalcVertexColour" retID="9">
+     <parameter id="8" />
+    </function>
+    <function id="18" name="screen_position" retID="7">
+     <parameter id="6" />
+    </function>
+    <function id="19" name="world_position" retID="4">
+     <parameter id="3" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+    <vfetch Address="6" Register="1" DestSwizzle="xyzw" Semantic="0x00" End="false" />
+    <vfetch Address="7" Register="2" DestSwizzle="xyzw" Semantic="0xa0" End="false" />
+    <vfetch Address="8" Register="3" DestSwizzle="xyz_" Semantic="0x50" End="false" />
+    <vfetch Address="9" Register="0" DestSwizzle="xyw_" Semantic="0x51" End="true" />
+   </VfetchInfo>
+   <InterpolatorInfo>
+    <Interpolator Register="0" Semantic="0xa0" Mask="xyzw" />
+    <Interpolator Register="1" Semantic="0x50" Mask="xyzw" />
+   </InterpolatorInfo>
+   <LiteralFloats>
+    <Float Register="252" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="253" value0="-5" value1="3" value2="0.1171875" value3="20" />
+    <Float Register="254" value0="10" value1="1000" value2="0.2" value3="45" />
+    <Float Register="255" value0="0.0071428572" value1="0.010526316" value2="0" value3="1" />
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+  <shader entrypoint="pixel_shader_flares" target="ps_3_0" FxlTechniqueName="ZPrePass" FxlTechnique="1" FxlPassName="p0" FxlPass="0" ZPass="0" pdbHint="4e4a0007-f4c01195-cee4f33d">
+   <constanttable>
+    <constant register="s0">
+     <type name="DIFFUSE_SAMPLER" class="object" type="sampler2D" />
+    </constant>
+    <constant register="s1">
+     <type name="HEIGHTMAP_SAMPLER" class="object" type="sampler2D" />
+    </constant>
+    <constant register="c164">
+     <type name="cvBaseAlphaRef" class="vector" type="float" columns="4" />
+    </constant>
+   </constanttable>
+   <sourcemap>
+    <statement pc="3" file="0" line="375" scope="-1" lastinstruction="0" />
+    <statement pc="4" file="0" line="375" scope="-1" lastinstruction="0" />
+    <statement pc="5" file="0" line="378" scope="-1" lastinstruction="0" />
+    <statement pc="0.1" file="0" line="378" scope="-1" lastinstruction="0" />
+    <statement pc="6" file="0" line="379" scope="-1" lastinstruction="0" />
+    <statement pc="7" file="0" line="384" scope="-1" lastinstruction="0" />
+    <statement pc="8" file="0" line="379" scope="-1" lastinstruction="0" />
+    <statement pc="9" file="0" line="386" scope="-1" lastinstruction="0" />
+    <statement pc="10" file="0" line="386" scope="-1" lastinstruction="0" />
+    <statement pc="11" file="0" line="379" scope="-1" lastinstruction="0" />
+    <statement pc="12" file="0" line="390" scope="-1" lastinstruction="0" />
+    <statement pc="13" file="0" line="390" scope="-1" lastinstruction="0" />
+    <statement pc="14" file="0" line="386" scope="-1" lastinstruction="0" />
+    <statement pc="15" file="1" line="54" scope="-1" lastinstruction="0" />
+    <statement pc="16" file="1" line="54" scope="-1" lastinstruction="0" />
+    <statement pc="17" file="1" line="54" scope="-1" lastinstruction="0" />
+    <statement pc="18" file="1" line="54" scope="-1" lastinstruction="0" />
+    <statement pc="19" file="1" line="54" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="PixelShaderVertexColour" retID="211">
+     <parameter id="210" />
+    </function>
+    <function id="1" name="VertexShaderVertexColour" retID="208">
+     <parameter id="206" />
+     <parameter id="207" />
+    </function>
+    <function id="2" name="ZPassVertexShader" retID="200">
+     <parameter id="199" />
+    </function>
+    <function id="3" name="pixel_shader_onscreen_distort" retID="190">
+     <parameter id="189" />
+    </function>
+    <function id="4" name="vertex_shader_passthru" retID="187">
+     <parameter id="186" />
+    </function>
+    <function id="5" name="pixel_shader_streak_flares" retID="181">
+     <parameter id="180" />
+    </function>
+    <function id="6" name="vertex_shader_streak_flares" retID="161">
+     <parameter id="160" />
+    </function>
+    <function id="7" name="pixel_shader_flares" retID="150">
+     <parameter id="149" />
+    </function>
+    <function id="8" name="vertex_shader_flares" retID="139">
+     <parameter id="138" />
+    </function>
+    <function id="9" name="pixel_shader_particles" retID="110">
+     <parameter id="109" />
+    </function>
+    <function id="10" name="vertex_shader_particles" retID="81">
+     <parameter id="80" />
+    </function>
+    <function id="11" name="BuildRotate" retID="74">
+     <parameter id="72" />
+     <parameter id="73" />
+    </function>
+    <function id="12" name="DecodeRGBE8" retID="24">
+     <parameter id="23" />
+    </function>
+    <function id="13" name="EncodeRGBE8" retID="19">
+     <parameter id="18" />
+    </function>
+    <function id="14" name="DeCompressColourSpace" retID="17">
+     <parameter id="16" />
+    </function>
+    <function id="15" name="CompressColourSpace" retID="15">
+     <parameter id="14" />
+    </function>
+    <function id="16" name="ScaleHeadLightIntensity" retID="12">
+     <parameter id="11" />
+    </function>
+    <function id="17" name="CalcVertexColour" retID="9">
+     <parameter id="8" />
+    </function>
+    <function id="18" name="screen_position" retID="7">
+     <parameter id="6" />
+    </function>
+    <function id="19" name="world_position" retID="4">
+     <parameter id="3" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+   </VfetchInfo>
+   <InterpolatorInfo>
+    <Interpolator Register="0" Semantic="0xa0" Mask="xyzw" />
+    <Interpolator Register="1" Semantic="0x50" Mask="xyzw" />
+    <Interpolator Register="2" Semantic="0x51" Mask="xyzw" />
+   </InterpolatorInfo>
+   <LiteralFloats>
+    <Float Register="252" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="253" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="254" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="255" value0="1.5" value1="0.40000001" value2="1" value3="0" />
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+  <shader entrypoint="vertex_shader_flares" target="vs_3_0" FxlTechniqueName="ZPrePass" FxlTechnique="1" FxlPassName="p0" FxlPass="0" ZPass="0" pdbHint="4e4a0008-f4c01195-cee4f33d">
+   <constanttable>
+    <constant register="c116">
+     <type name="cfMipMapBias" class="scalar" type="float" />
+    </constant>
+    <constant register="c132">
+     <type name="cfSplitScreenUVScale" class="vector" type="float" columns="4" />
+    </constant>
+    <constant register="c12" count="3">
+     <type name="cmWorldView" class="matrix_columns" type="float" rows="4" columns="4" />
+    </constant>
+    <constant register="c24" count="4">
+     <type name="cmWorldViewProj" class="matrix_columns" type="float" rows="4" columns="4" />
+    </constant>
+    <constant register="c137">
+     <type name="cvScreenOffset" class="vector" type="float" columns="4" />
+    </constant>
+   </constanttable>
+   <sourcemap>
+    <statement pc="6" file="0" line="318" scope="-1" lastinstruction="0" />
+    <statement pc="7" file="0" line="318" scope="-1" lastinstruction="0" />
+    <statement pc="8" file="0" line="318" scope="-1" lastinstruction="0" />
+    <statement pc="9" file="0" line="318" scope="-1" lastinstruction="0" />
+    <statement pc="10" file="0" line="318" scope="-1" lastinstruction="0" />
+    <statement pc="11" file="0" line="318" scope="-1" lastinstruction="0" />
+    <statement pc="12" file="0" line="124" scope="-1" lastinstruction="0" />
+    <statement pc="13" file="0" line="125" scope="-1" lastinstruction="0" />
+    <statement pc="14" file="0" line="124" scope="-1" lastinstruction="0" />
+    <statement pc="15" file="0" line="124" scope="-1" lastinstruction="0" />
+    <statement pc="16" file="0" line="124" scope="-1" lastinstruction="0" />
+    <statement pc="17" file="0" line="125" scope="-1" lastinstruction="0" />
+    <statement pc="18" file="0" line="128" scope="-1" lastinstruction="0" />
+    <statement pc="19" file="0" line="127" scope="-1" lastinstruction="0" />
+    <statement pc="20" file="0" line="130" scope="-1" lastinstruction="0" />
+    <statement pc="21" file="0" line="130" scope="-1" lastinstruction="0" />
+    <statement pc="22" file="0" line="131" scope="-1" lastinstruction="0" />
+    <statement pc="23" file="0" line="131" scope="-1" lastinstruction="0" />
+    <statement pc="24" file="0" line="129" scope="-1" lastinstruction="0" />
+    <statement pc="25" file="0" line="333" scope="-1" lastinstruction="0" />
+    <statement pc="26" file="0" line="332" scope="-1" lastinstruction="0" />
+    <statement pc="27" file="0" line="333" scope="-1" lastinstruction="0" />
+    <statement pc="28" file="0" line="333" scope="-1" lastinstruction="0" />
+    <statement pc="29" file="0" line="332" scope="-1" lastinstruction="0" />
+    <statement pc="30" file="0" line="333" scope="-1" lastinstruction="0" />
+    <statement pc="31" file="0" line="333" scope="-1" lastinstruction="0" />
+    <statement pc="32" file="0" line="332" scope="-1" lastinstruction="0" />
+    <statement pc="33" file="0" line="333" scope="-1" lastinstruction="0" />
+    <statement pc="34" file="0" line="337" scope="-1" lastinstruction="0" />
+    <statement pc="35" file="0" line="337" scope="-1" lastinstruction="0" />
+    <statement pc="36" file="1" line="20" scope="-1" lastinstruction="0" />
+    <statement pc="37" file="1" line="20" scope="-1" lastinstruction="0" />
+    <statement pc="38" file="1" line="20" scope="-1" lastinstruction="0" />
+    <statement pc="39" file="1" line="20" scope="-1" lastinstruction="0" />
+    <statement pc="40" file="1" line="20" scope="-1" lastinstruction="0" />
+    <statement pc="41" file="1" line="21" scope="-1" lastinstruction="0" />
+    <statement pc="42" file="0" line="351" scope="-1" lastinstruction="0" />
+    <statement pc="43" file="0" line="351" scope="-1" lastinstruction="0" />
+    <statement pc="44" file="0" line="368" scope="-1" lastinstruction="0" />
+    <statement pc="4.0" file="0" line="368" scope="-1" lastinstruction="0" />
+    <statement pc="45" file="0" line="368" scope="-1" lastinstruction="0" />
+    <statement pc="46" file="0" line="350" scope="-1" lastinstruction="0" />
+    <statement pc="47" file="0" line="365" scope="-1" lastinstruction="0" />
+    <statement pc="48" file="0" line="351" scope="-1" lastinstruction="0" />
+    <statement pc="49" file="0" line="354" scope="-1" lastinstruction="0" />
+    <statement pc="50" file="0" line="350" scope="-1" lastinstruction="0" />
+    <statement pc="51" file="0" line="368" scope="-1" lastinstruction="0" />
+    <statement pc="52" file="0" line="368" scope="-1" lastinstruction="0" />
+    <statement pc="53" file="0" line="368" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="PixelShaderVertexColour" retID="211">
+     <parameter id="210" />
+    </function>
+    <function id="1" name="VertexShaderVertexColour" retID="208">
+     <parameter id="206" />
+     <parameter id="207" />
+    </function>
+    <function id="2" name="ZPassVertexShader" retID="200">
+     <parameter id="199" />
+    </function>
+    <function id="3" name="pixel_shader_onscreen_distort" retID="190">
+     <parameter id="189" />
+    </function>
+    <function id="4" name="vertex_shader_passthru" retID="187">
+     <parameter id="186" />
+    </function>
+    <function id="5" name="pixel_shader_streak_flares" retID="181">
+     <parameter id="180" />
+    </function>
+    <function id="6" name="vertex_shader_streak_flares" retID="161">
+     <parameter id="160" />
+    </function>
+    <function id="7" name="pixel_shader_flares" retID="150">
+     <parameter id="149" />
+    </function>
+    <function id="8" name="vertex_shader_flares" retID="139">
+     <parameter id="138" />
+    </function>
+    <function id="9" name="pixel_shader_particles" retID="110">
+     <parameter id="109" />
+    </function>
+    <function id="10" name="vertex_shader_particles" retID="81">
+     <parameter id="80" />
+    </function>
+    <function id="11" name="BuildRotate" retID="74">
+     <parameter id="72" />
+     <parameter id="73" />
+    </function>
+    <function id="12" name="DecodeRGBE8" retID="24">
+     <parameter id="23" />
+    </function>
+    <function id="13" name="EncodeRGBE8" retID="19">
+     <parameter id="18" />
+    </function>
+    <function id="14" name="DeCompressColourSpace" retID="17">
+     <parameter id="16" />
+    </function>
+    <function id="15" name="CompressColourSpace" retID="15">
+     <parameter id="14" />
+    </function>
+    <function id="16" name="ScaleHeadLightIntensity" retID="12">
+     <parameter id="11" />
+    </function>
+    <function id="17" name="CalcVertexColour" retID="9">
+     <parameter id="8" />
+    </function>
+    <function id="18" name="screen_position" retID="7">
+     <parameter id="6" />
+    </function>
+    <function id="19" name="world_position" retID="4">
+     <parameter id="3" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+    <vfetch Address="6" Register="4" DestSwizzle="xyzw" Semantic="0x00" End="false" />
+    <vfetch Address="7" Register="5" DestSwizzle="xyzw" Semantic="0xa0" End="false" />
+    <vfetch Address="8" Register="2" DestSwizzle="xyz_" Semantic="0x50" End="false" />
+    <vfetch Address="9" Register="3" DestSwizzle="xyz_" Semantic="0x51" End="true" />
+   </VfetchInfo>
+   <InterpolatorInfo>
+    <Interpolator Register="0" Semantic="0xa0" Mask="xyzw" />
+    <Interpolator Register="1" Semantic="0x50" Mask="xyzw" />
+    <Interpolator Register="2" Semantic="0x51" Mask="xyzw" />
+   </InterpolatorInfo>
+   <LiteralFloats>
+    <Float Register="252" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="253" value0="6.2831855" value1="-0.15000001" value2="0.15915494" value3="-3.1415927" />
+    <Float Register="254" value0="0" value1="1" value2="0.5" value3="-0.5" />
+    <Float Register="255" value0="0.15000001" value1="0" value2="0" value3="0" />
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+  <shader entrypoint="pixel_shader_particles" target="ps_3_0" FxlTechniqueName="RenderVertexColour" FxlTechnique="0" FxlPassName="p0" FxlPass="0" ZPass="0" pdbHint="4e4a0009-f4c01195-cee4f33d">
+   <constanttable>
+    <constant register="s0">
+     <type name="DIFFUSE_SAMPLER" class="object" type="sampler2D" />
+    </constant>
+    <constant register="s2">
+     <type name="HEIGHTMAP_SAMPLER" class="object" type="sampler2D" />
+    </constant>
+    <constant register="s1">
+     <type name="NORMALMAP_SAMPLER" class="object" type="sampler2D" />
+    </constant>
+    <constant register="c217">
+     <type name="magnitude_debug" class="scalar" type="float" />
+    </constant>
+   </constanttable>
+   <sourcemap>
+    <statement pc="3" file="0" line="241" scope="-1" lastinstruction="0" />
+    <statement pc="4" file="0" line="243" scope="-1" lastinstruction="0" />
+    <statement pc="5" file="0" line="260" scope="-1" lastinstruction="0" />
+    <statement pc="0.1" file="0" line="260" scope="-1" lastinstruction="0" />
+    <statement pc="6" file="0" line="265" scope="-1" lastinstruction="0" />
+    <statement pc="7" file="0" line="260" scope="-1" lastinstruction="0" />
+    <statement pc="8" file="0" line="265" scope="-1" lastinstruction="0" />
+    <statement pc="9" file="0" line="262" scope="-1" lastinstruction="0" />
+    <statement pc="10" file="0" line="260" scope="-1" lastinstruction="0" />
+    <statement pc="11" file="0" line="266" scope="-1" lastinstruction="0" />
+    <statement pc="12" file="0" line="268" scope="-1" lastinstruction="0" />
+    <statement pc="13" file="0" line="278" scope="-1" lastinstruction="0" />
+    <statement pc="14" file="0" line="252" scope="-1" lastinstruction="0" />
+    <statement pc="15" file="0" line="252" scope="-1" lastinstruction="0" />
+    <statement pc="16" file="0" line="254" scope="-1" lastinstruction="0" />
+    <statement pc="17" file="0" line="241" scope="-1" lastinstruction="0" />
+    <statement pc="18" file="0" line="279" scope="-1" lastinstruction="0" />
+    <statement pc="19" file="0" line="241" scope="-1" lastinstruction="0" />
+    <statement pc="20" file="0" line="278" scope="-1" lastinstruction="0" />
+    <statement pc="21" file="0" line="278" scope="-1" lastinstruction="0" />
+    <statement pc="22" file="0" line="278" scope="-1" lastinstruction="0" />
+    <statement pc="23" file="1" line="54" scope="-1" lastinstruction="0" />
+    <statement pc="24" file="1" line="54" scope="-1" lastinstruction="0" />
+    <statement pc="25" file="1" line="54" scope="-1" lastinstruction="0" />
+    <statement pc="26" file="1" line="54" scope="-1" lastinstruction="0" />
+    <statement pc="27" file="1" line="54" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="PixelShaderVertexColour" retID="211">
+     <parameter id="210" />
+    </function>
+    <function id="1" name="VertexShaderVertexColour" retID="208">
+     <parameter id="206" />
+     <parameter id="207" />
+    </function>
+    <function id="2" name="ZPassVertexShader" retID="200">
+     <parameter id="199" />
+    </function>
+    <function id="3" name="pixel_shader_onscreen_distort" retID="190">
+     <parameter id="189" />
+    </function>
+    <function id="4" name="vertex_shader_passthru" retID="187">
+     <parameter id="186" />
+    </function>
+    <function id="5" name="pixel_shader_streak_flares" retID="181">
+     <parameter id="180" />
+    </function>
+    <function id="6" name="vertex_shader_streak_flares" retID="161">
+     <parameter id="160" />
+    </function>
+    <function id="7" name="pixel_shader_flares" retID="150">
+     <parameter id="149" />
+    </function>
+    <function id="8" name="vertex_shader_flares" retID="139">
+     <parameter id="138" />
+    </function>
+    <function id="9" name="pixel_shader_particles" retID="110">
+     <parameter id="109" />
+    </function>
+    <function id="10" name="vertex_shader_particles" retID="81">
+     <parameter id="80" />
+    </function>
+    <function id="11" name="BuildRotate" retID="74">
+     <parameter id="72" />
+     <parameter id="73" />
+    </function>
+    <function id="12" name="DecodeRGBE8" retID="24">
+     <parameter id="23" />
+    </function>
+    <function id="13" name="EncodeRGBE8" retID="19">
+     <parameter id="18" />
+    </function>
+    <function id="14" name="DeCompressColourSpace" retID="17">
+     <parameter id="16" />
+    </function>
+    <function id="15" name="CompressColourSpace" retID="15">
+     <parameter id="14" />
+    </function>
+    <function id="16" name="ScaleHeadLightIntensity" retID="12">
+     <parameter id="11" />
+    </function>
+    <function id="17" name="CalcVertexColour" retID="9">
+     <parameter id="8" />
+    </function>
+    <function id="18" name="screen_position" retID="7">
+     <parameter id="6" />
+    </function>
+    <function id="19" name="world_position" retID="4">
+     <parameter id="3" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+   </VfetchInfo>
+   <InterpolatorInfo>
+    <Interpolator Register="0" Semantic="0xa0" Mask="xyzw" />
+    <Interpolator Register="1" Semantic="0xa1" Mask="xyz" />
+    <Interpolator Register="2" Semantic="0x50" Mask="xyzw" />
+    <Interpolator Register="3" Semantic="0x51" Mask="xyzw" />
+    <Interpolator Register="4" Semantic="0x52" Mask="xyz" />
+    <Interpolator Register="5" Semantic="0x53" Mask="xyzw" />
+   </InterpolatorInfo>
+   <LiteralFloats>
+    <Float Register="252" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="253" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="254" value0="-1" value1="-1.0000501" value2="-0.50002503" value3="1" />
+    <Float Register="255" value0="0.72000003" value1="0.80000001" value2="0.89999998" value3="-1.0000501" />
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+  <shader entrypoint="vertex_shader_particles" target="vs_3_0" FxlTechniqueName="RenderVertexColour" FxlTechnique="0" FxlPassName="p0" FxlPass="0" ZPass="0" pdbHint="4e4a000a-f4c01195-cee4f33d">
+   <constanttable>
+    <constant register="c132">
+     <type name="cfSplitScreenUVScale" class="vector" type="float" columns="4" />
+    </constant>
+    <constant register="c4" count="3">
+     <type name="cmWorldMat" class="matrix_columns" type="float" rows="4" columns="4" />
+    </constant>
+    <constant register="c12" count="3">
+     <type name="cmWorldView" class="matrix_columns" type="float" rows="4" columns="4" />
+    </constant>
+    <constant register="c24" count="4">
+     <type name="cmWorldViewProj" class="matrix_columns" type="float" rows="4" columns="4" />
+    </constant>
+    <constant register="c217">
+     <type name="cvLightPosition" class="vector" type="float" columns="4" />
+    </constant>
+    <constant register="c32">
+     <type name="cvLocalEyePos" class="vector" type="float" columns="3" />
+    </constant>
+    <constant register="c137">
+     <type name="cvScreenOffset" class="vector" type="float" columns="4" />
+    </constant>
+    <constant register="c161">
+     <type name="cvTextureOffset" class="vector" type="float" columns="4" />
+    </constant>
+   </constanttable>
+   <sourcemap>
+    <statement pc="8" file="0" line="145" scope="-1" lastinstruction="0" />
+    <statement pc="9" file="0" line="145" scope="-1" lastinstruction="0" />
+    <statement pc="10" file="0" line="145" scope="-1" lastinstruction="0" />
+    <statement pc="11" file="0" line="145" scope="-1" lastinstruction="0" />
+    <statement pc="12" file="0" line="145" scope="-1" lastinstruction="0" />
+    <statement pc="13" file="0" line="145" scope="-1" lastinstruction="0" />
+    <statement pc="14" file="0" line="124" scope="-1" lastinstruction="0" />
+    <statement pc="15" file="0" line="125" scope="-1" lastinstruction="0" />
+    <statement pc="16" file="0" line="124" scope="-1" lastinstruction="0" />
+    <statement pc="17" file="0" line="124" scope="-1" lastinstruction="0" />
+    <statement pc="18" file="0" line="124" scope="-1" lastinstruction="0" />
+    <statement pc="19" file="0" line="125" scope="-1" lastinstruction="0" />
+    <statement pc="20" file="0" line="128" scope="-1" lastinstruction="0" />
+    <statement pc="21" file="0" line="127" scope="-1" lastinstruction="0" />
+    <statement pc="22" file="0" line="130" scope="-1" lastinstruction="0" />
+    <statement pc="23" file="0" line="130" scope="-1" lastinstruction="0" />
+    <statement pc="24" file="0" line="131" scope="-1" lastinstruction="0" />
+    <statement pc="25" file="0" line="131" scope="-1" lastinstruction="0" />
+    <statement pc="26" file="0" line="129" scope="-1" lastinstruction="0" />
+    <statement pc="27" file="0" line="159" scope="-1" lastinstruction="0" />
+    <statement pc="28" file="0" line="158" scope="-1" lastinstruction="0" />
+    <statement pc="29" file="0" line="159" scope="-1" lastinstruction="0" />
+    <statement pc="30" file="0" line="159" scope="-1" lastinstruction="0" />
+    <statement pc="31" file="0" line="158" scope="-1" lastinstruction="0" />
+    <statement pc="32" file="0" line="159" scope="-1" lastinstruction="0" />
+    <statement pc="33" file="0" line="159" scope="-1" lastinstruction="0" />
+    <statement pc="34" file="0" line="158" scope="-1" lastinstruction="0" />
+    <statement pc="35" file="0" line="159" scope="-1" lastinstruction="0" />
+    <statement pc="36" file="0" line="177" scope="-1" lastinstruction="0" />
+    <statement pc="37" file="0" line="177" scope="-1" lastinstruction="0" />
+    <statement pc="38" file="0" line="164" scope="-1" lastinstruction="0" />
+    <statement pc="39" file="1" line="20" scope="-1" lastinstruction="0" />
+    <statement pc="40" file="0" line="164" scope="-1" lastinstruction="0" />
+    <statement pc="41" file="1" line="20" scope="-1" lastinstruction="0" />
+    <statement pc="42" file="1" line="20" scope="-1" lastinstruction="0" />
+    <statement pc="43" file="0" line="177" scope="-1" lastinstruction="0" />
+    <statement pc="44" file="1" line="21" scope="-1" lastinstruction="0" />
+    <statement pc="45" file="1" line="21" scope="-1" lastinstruction="0" />
+    <statement pc="46" file="0" line="185" scope="-1" lastinstruction="0" />
+    <statement pc="47" file="0" line="185" scope="-1" lastinstruction="0" />
+    <statement pc="48" file="0" line="185" scope="-1" lastinstruction="0" />
+    <statement pc="49" file="1" line="20" scope="-1" lastinstruction="0" />
+    <statement pc="50" file="1" line="20" scope="-1" lastinstruction="0" />
+    <statement pc="51" file="0" line="177" scope="-1" lastinstruction="0" />
+    <statement pc="52" file="0" line="185" scope="-1" lastinstruction="0" />
+    <statement pc="53" file="0" line="185" scope="-1" lastinstruction="0" />
+    <statement pc="54" file="0" line="177" scope="-1" lastinstruction="0" />
+    <statement pc="55" file="1" line="20" scope="-1" lastinstruction="0" />
+    <statement pc="56" file="0" line="177" scope="-1" lastinstruction="0" />
+    <statement pc="57" file="1" line="21" scope="-1" lastinstruction="0" />
+    <statement pc="58" file="0" line="173" scope="-1" lastinstruction="0" />
+    <statement pc="59" file="0" line="174" scope="-1" lastinstruction="0" />
+    <statement pc="60" file="0" line="174" scope="-1" lastinstruction="0" />
+    <statement pc="61" file="0" line="177" scope="-1" lastinstruction="0" />
+    <statement pc="62" file="0" line="175" scope="-1" lastinstruction="0" />
+    <statement pc="63" file="0" line="185" scope="-1" lastinstruction="0" />
+    <statement pc="64" file="0" line="177" scope="-1" lastinstruction="0" />
+    <statement pc="65" file="0" line="177" scope="-1" lastinstruction="0" />
+    <statement pc="66" file="0" line="177" scope="-1" lastinstruction="0" />
+    <statement pc="67" file="0" line="233" scope="-1" lastinstruction="0" />
+    <statement pc="6.0" file="0" line="233" scope="-1" lastinstruction="0" />
+    <statement pc="68" file="0" line="230" scope="-1" lastinstruction="0" />
+    <statement pc="69" file="0" line="230" scope="-1" lastinstruction="0" />
+    <statement pc="70" file="0" line="230" scope="-1" lastinstruction="0" />
+    <statement pc="71" file="0" line="212" scope="-1" lastinstruction="0" />
+    <statement pc="72" file="0" line="211" scope="-1" lastinstruction="0" />
+    <statement pc="73" file="0" line="211" scope="-1" lastinstruction="0" />
+    <statement pc="74" file="0" line="193" scope="-1" lastinstruction="0" />
+    <statement pc="75" file="0" line="193" scope="-1" lastinstruction="0" />
+    <statement pc="76" file="0" line="233" scope="-1" lastinstruction="0" />
+    <statement pc="77" file="0" line="205" scope="-1" lastinstruction="0" />
+    <statement pc="78" file="0" line="233" scope="-1" lastinstruction="0" />
+    <statement pc="79" file="0" line="208" scope="-1" lastinstruction="0" />
+    <statement pc="80" file="0" line="193" scope="-1" lastinstruction="0" />
+    <statement pc="81" file="0" line="214" scope="-1" lastinstruction="0" />
+    <statement pc="82" file="0" line="214" scope="-1" lastinstruction="0" />
+   </sourcemap>
+   <variables>
+   </variables>
+   <variableDebugInfo>
+   </variableDebugInfo>
+   <scopes>
+   </scopes>
+   <funcInfo>
+    <function id="0" name="PixelShaderVertexColour" retID="211">
+     <parameter id="210" />
+    </function>
+    <function id="1" name="VertexShaderVertexColour" retID="208">
+     <parameter id="206" />
+     <parameter id="207" />
+    </function>
+    <function id="2" name="ZPassVertexShader" retID="200">
+     <parameter id="199" />
+    </function>
+    <function id="3" name="pixel_shader_onscreen_distort" retID="190">
+     <parameter id="189" />
+    </function>
+    <function id="4" name="vertex_shader_passthru" retID="187">
+     <parameter id="186" />
+    </function>
+    <function id="5" name="pixel_shader_streak_flares" retID="181">
+     <parameter id="180" />
+    </function>
+    <function id="6" name="vertex_shader_streak_flares" retID="161">
+     <parameter id="160" />
+    </function>
+    <function id="7" name="pixel_shader_flares" retID="150">
+     <parameter id="149" />
+    </function>
+    <function id="8" name="vertex_shader_flares" retID="139">
+     <parameter id="138" />
+    </function>
+    <function id="9" name="pixel_shader_particles" retID="110">
+     <parameter id="109" />
+    </function>
+    <function id="10" name="vertex_shader_particles" retID="81">
+     <parameter id="80" />
+    </function>
+    <function id="11" name="BuildRotate" retID="74">
+     <parameter id="72" />
+     <parameter id="73" />
+    </function>
+    <function id="12" name="DecodeRGBE8" retID="24">
+     <parameter id="23" />
+    </function>
+    <function id="13" name="EncodeRGBE8" retID="19">
+     <parameter id="18" />
+    </function>
+    <function id="14" name="DeCompressColourSpace" retID="17">
+     <parameter id="16" />
+    </function>
+    <function id="15" name="CompressColourSpace" retID="15">
+     <parameter id="14" />
+    </function>
+    <function id="16" name="ScaleHeadLightIntensity" retID="12">
+     <parameter id="11" />
+    </function>
+    <function id="17" name="CalcVertexColour" retID="9">
+     <parameter id="8" />
+    </function>
+    <function id="18" name="screen_position" retID="7">
+     <parameter id="6" />
+    </function>
+    <function id="19" name="world_position" retID="4">
+     <parameter id="3" />
+    </function>
+   </funcInfo>
+   <funcEntryExitInfo>
+   </funcEntryExitInfo>
+   <VfetchInfo>
+    <vfetch Address="8" Register="1" DestSwizzle="wxyz" Semantic="0x00" End="false" />
+    <vfetch Address="9" Register="3" DestSwizzle="xyzw" Semantic="0xa0" End="false" />
+    <vfetch Address="10" Register="5" DestSwizzle="xyzw" Semantic="0x50" End="false" />
+    <vfetch Address="11" Register="4" DestSwizzle="xyz_" Semantic="0x51" End="true" />
+   </VfetchInfo>
+   <InterpolatorInfo>
+    <Interpolator Register="0" Semantic="0xa0" Mask="xyzw" />
+    <Interpolator Register="1" Semantic="0xa1" Mask="xyz" />
+    <Interpolator Register="2" Semantic="0x50" Mask="xyzw" />
+    <Interpolator Register="3" Semantic="0x51" Mask="xyzw" />
+    <Interpolator Register="4" Semantic="0x52" Mask="xyz" />
+    <Interpolator Register="5" Semantic="0x53" Mask="xyzw" />
+   </InterpolatorInfo>
+   <LiteralFloats>
+    <Float Register="252" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="253" value0="0" value1="0" value2="0" value3="0" />
+    <Float Register="254" value0="-3.1415927" value1="0.15915494" value2="6.2831855" value3="0.75" />
+    <Float Register="255" value0="0.5" value1="-0.5" value2="0" value3="1" />
+   </LiteralFloats>
+   <LiteralInts>
+   </LiteralInts>
+   <LiteralBools>
+   </LiteralBools>
+  </shader>
+ </shaders>
+</shader-pdb>

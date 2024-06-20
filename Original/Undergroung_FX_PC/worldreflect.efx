@@ -1,0 +1,247 @@
+//
+// World Effects
+//
+
+float4x4 WorldViewProj  : WORLDVIEWPROJECTION ;
+
+texture  ReflectedTex   : REFLECTEDTEX;
+float4x4 ReflectedProj  : REFLECTEDPROJ;
+
+shared texture diffusemap		: DiffuseMap;
+
+shared int BaseAlphaTestEnable	: BASEALPHATESTENABLE;
+shared int BaseAlphaRef			: BASEALPHAREF;
+shared int BaseAlphaBlendEnable	: BASEALPHABLENDENABLE;
+shared int BaseSrcBlend			: BASESRCBLEND;
+shared int BaseDestBlend		: BASEDESTBLEND;
+
+sampler samp = sampler_state
+{
+	texture = <diffusemap>;
+	AddressU = WRAP;
+	AddressV = WRAP;
+	MIPFILTER = LINEAR;
+	MINFILTER = LINEAR;
+	MAGFILTER = LINEAR;
+};
+
+sampler reflected_sampler = sampler_state
+{
+	texture = <ReflectedTex>;
+	AddressU = WRAP;
+	AddressV = WRAP;
+	MIPFILTER = LINEAR;
+	MINFILTER = LINEAR;
+	MAGFILTER = LINEAR;
+};
+
+struct VS_INPUT
+{
+	float4 position : POSITION;
+	float4 color    : COLOR;
+	float4 texcoord : TEXCOORD;
+};
+
+struct VtoP
+{
+	float4 position : POSITION;
+	float4 color    : COLOR;
+	float4 t0       : TEXCOORD0;
+	float4 t1       : TEXCOORD1;
+};
+
+struct PS_OUTPUT
+{
+	float4 color : COLOR0;
+};
+
+VtoP vertex_shader(const VS_INPUT IN)
+{
+	VtoP OUT;
+	float4 p = mul(IN.position, WorldViewProj);
+	OUT.position = p;
+	OUT.t0 = IN.texcoord;
+	OUT.color = IN.color ;
+
+	p.y=-p.y;
+	p.xy += p.w; // add "one" - texture bias
+	p.xy *= 0.5;
+	OUT.t1 = p;
+
+	return OUT;
+}
+
+PS_OUTPUT pixel_shader(const VtoP IN)
+{
+	PS_OUTPUT OUT;
+	float4 dc = tex2D(samp, IN.t0) ;
+	float4 reflected_sample = tex2D(reflected_sampler, IN.t1.xy);
+//	OUT.color = reflected_sample;
+//	OUT.color = (dc * IN.color * 2);
+
+    float3 diffuse = dc * IN.color;
+    float3 reflect = IN.color.w * dc.w * reflected_sample;
+
+    float3 output = diffuse*2.0f + reflect;
+	OUT.color.xyz = output;
+//	OUT.color.xyz = IN.color.w;
+    OUT.color.w = 1.0f;
+
+	return OUT;
+}
+
+technique world
+{
+    pass p0
+    {
+		AlphaTestEnable = (BaseAlphaTestEnable);
+		AlphaRef = (BaseAlphaRef);
+		AlphaBlendEnable = (BaseAlphaBlendEnable);
+		SrcBlend = (BaseSrcBlend);
+		DestBlend = (BaseDestBlend);
+    
+        CullMode = NONE;
+
+        TextureTransformFlags[1] = Projected;
+        
+        VertexShader = compile vs_1_1 vertex_shader();
+        PixelShader  = compile ps_1_1 pixel_shader();
+    }
+}
+
+technique world_fixed_single_pass 
+{
+	pass p0
+	{
+		AlphaTestEnable = (BaseAlphaTestEnable);
+		AlphaRef = (BaseAlphaRef);
+		AlphaBlendEnable = (BaseAlphaBlendEnable);
+		SrcBlend = (BaseSrcBlend);
+		DestBlend = (BaseDestBlend);
+
+		CullMode = NONE;
+		Lighting=FALSE;
+		
+		AddressU[0] = Wrap;
+		AddressV[0] = Wrap;
+		
+		TEXCOORDINDEX[1]= CAMERASPACEPOSITION;
+		TEXTURETRANSFORMFLAGS[1] = PROJECTED| COUNT3;
+		TextureTransform[1] = <ReflectedProj>;
+
+		MIPFILTER[0] = LINEAR;
+		MINFILTER[0] = LINEAR;
+		MAGFILTER[0] = LINEAR;
+		
+		VertexShader = NULL;
+		PixelShader  = NULL; 
+		FVF = XYZ | DIFFUSE | TEX1 ; 
+
+		Texture[0] = <diffusemap>;
+        ColorArg1[0] = Texture;
+        ColorArg2[0] = Diffuse; 
+		ColorOp[0] = Modulate2x;
+		
+		alphaarg1[0] = Texture;
+		alphaarg2[0] = Diffuse;
+		AlphaOp[0] = Modulate;
+		
+		AddressU[1] = Clamp;
+		AddressV[1] = Clamp;
+		Texture[1] = <ReflectedTex>;
+		ColorArg1[1] = Current;
+		ColorArg2[1] = Texture;
+		ColorOp[1] = ModulateAlpha_AddColor;
+		
+		AlphaOp[1] = Disable;
+	}
+}
+
+technique world_fixed_2pass 
+{
+	pass p0
+	{
+		ALPHABLENDENABLE =  true;
+		SRCBLEND = one;
+		DESTBLEND = zero;
+		
+		CullMode = NONE;
+		Lighting=FALSE;
+
+		TEXCOORDINDEX[0]= PASSTHRU;
+		TEXTURETRANSFORMFLAGS[0] = Disable;
+		
+		AddressU[0] = Wrap;
+		AddressV[0] = Wrap;
+
+		MIPFILTER[0] = LINEAR;
+		MINFILTER[0] = LINEAR;
+		MAGFILTER[0] = LINEAR;
+		
+		VertexShader = NULL;
+		PixelShader  = NULL; 
+		FVF = XYZ | DIFFUSE | TEX1 ; 
+
+		Texture[0] = <diffusemap>;
+        ColorArg1[0] = Texture;
+        ColorArg2[0] = Diffuse; 
+		ColorOp[0] = Modulate2x;
+		
+		alphaarg1[0] = Texture;
+		alphaarg2[0] = Diffuse;
+		AlphaOp[0] = Modulate;
+	}		
+	pass p1
+	{
+		TEXCOORDINDEX[0]= CAMERASPACEPOSITION;
+		TEXTURETRANSFORMFLAGS[0] = PROJECTED | COUNT3;
+		TextureTransform[0] = <ReflectedProj>;
+
+		ALPHABLENDENABLE = true;		
+		SRCBLEND = DESTALPHA;
+		DESTBLEND = ONE; 
+		
+		Texture[0] = <ReflectedTex>;
+		ColorArg1[0] = Texture;
+		ColorOp[0] = SelectArg1;
+		
+		AlphaOp[0] = Disable;
+	}
+}
+
+
+technique world_fixed
+{
+	pass p0
+	{
+		AlphaTestEnable = (BaseAlphaTestEnable);
+		AlphaRef = (BaseAlphaRef);
+		AlphaBlendEnable = (BaseAlphaBlendEnable);
+		SrcBlend = (BaseSrcBlend);
+		DestBlend = (BaseDestBlend);
+
+		AddressU[0]  = Wrap;
+		AddressV[0]  = Wrap;
+
+		CullMode = NONE;
+		Lighting=FALSE;
+	
+		MIPFILTER[0] = LINEAR;
+		MINFILTER[0] = LINEAR;
+		MAGFILTER[0] = LINEAR;
+
+		VertexShader = NULL;
+		PixelShader  = NULL; 
+		FVF = XYZ | DIFFUSE | TEX1 ; 
+
+		Texture[0] = <diffusemap>;
+        ColorArg1[0] = Texture;
+        ColorArg2[0] = Diffuse; 
+		ColorOp[0] = Modulate2x;
+		
+		alphaarg1[0] = Texture;
+		alphaarg2[0] = Diffuse;
+		AlphaOp[0] = Modulate2x;
+	}
+}
+ÿ
