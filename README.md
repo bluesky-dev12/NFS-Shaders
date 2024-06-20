@@ -11,8 +11,3 @@
     <br/>
   </p>
 </p>
-
-## Autores:
-
-* **BlueSkyWestSide**
-* **Incude**
