@@ -6,7 +6,7 @@
   <h3 align="center">NFS-Shaders</h3>
 
   <p align="center">
-    This is repositor for shaders for some NFS Games. Currently i want to port these to pc by-time-to-time.
+    This is repository for shaders for some NFS Games. Currently i want to port these to pc by-time-to-time.
     <br/>
     <br/>
   </p>
